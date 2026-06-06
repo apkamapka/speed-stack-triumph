@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const COLS = 10;
 const ROWS = 20;
+const TOTAL_ROUNDS = 10;
+const ROUND_SECONDS = 120;
 
 type CellValue = 0 | TetrominoKey;
 type TetrominoKey = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
@@ -119,21 +121,28 @@ export function Tetris() {
   const [nextPiece, setNextPiece] = useState<Piece>(() => randomPiece());
   const [score, setScore] = useState(0);
   const [lines, setLines] = useState(0);
-  const [speed, setSpeed] = useState(1);
+  const [round, setRound] = useState(1);
+  const [timeLeft, setTimeLeft] = useState(ROUND_SECONDS);
+  const [roundOver, setRoundOver] = useState<null | "time" | "topout">(null);
+  const [matchOver, setMatchOver] = useState(false);
   const [paused, setPaused] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+
+  const speed = round;
 
   const boardRef = useRef(board);
   const pieceRef = useRef(piece);
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
   const gameOverRef = useRef(gameOver);
+  const roundOverRef = useRef(roundOver);
 
   boardRef.current = board;
   pieceRef.current = piece;
   speedRef.current = speed;
-  pausedRef.current = paused;
+  pausedRef.current = paused || roundOver !== null || matchOver;
   gameOverRef.current = gameOver;
+  roundOverRef.current = roundOver;
 
   const reset = useCallback(() => {
     setBoard(emptyBoard());
@@ -141,16 +150,41 @@ export function Tetris() {
     setNextPiece(randomPiece());
     setScore(0);
     setLines(0);
+    setRound(1);
+    setTimeLeft(ROUND_SECONDS);
+    setRoundOver(null);
+    setMatchOver(false);
     setGameOver(false);
     setPaused(false);
   }, []);
+
+  const resetBoardOnly = useCallback(() => {
+    setBoard(emptyBoard());
+    setPiece(randomPiece());
+    setNextPiece(randomPiece());
+  }, []);
+
+  const nextRound = useCallback(() => {
+    setRound((r) => {
+      const nr = r + 1;
+      if (nr > TOTAL_ROUNDS) {
+        setMatchOver(true);
+        setRoundOver(null);
+        return r;
+      }
+      setTimeLeft(ROUND_SECONDS);
+      setRoundOver(null);
+      resetBoardOnly();
+      return nr;
+    });
+  }, [resetBoardOnly]);
 
   const spawnNext = useCallback(() => {
     setPiece((prevNext) => {
       // use nextPiece as the new active
       const incoming = { ...nextPieceRef.current, x: 3, y: -1, rotation: 0 };
       if (collides(boardRef.current, incoming)) {
-        setGameOver(true);
+        setRoundOver((prev) => prev ?? "topout");
         return prevNext;
       }
       setNextPiece(randomPiece());
@@ -231,6 +265,23 @@ export function Tetris() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [tryMove, lockPiece, gameOver]);
+
+  // round timer
+  useEffect(() => {
+    if (matchOver || roundOver !== null) return;
+    const id = setInterval(() => {
+      if (pausedRef.current && roundOverRef.current === null) return;
+      if (roundOverRef.current !== null) return;
+      setTimeLeft((t) => {
+        if (t <= 1) {
+          setRoundOver((prev) => prev ?? "time");
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [matchOver, roundOver, round]);
 
   // keyboard
   useEffect(() => {
@@ -323,9 +374,11 @@ export function Tetris() {
   return (
     <div className="flex flex-col items-center gap-4 w-full max-w-md mx-auto">
       <div className="flex w-full justify-between items-center text-sm">
+        <Stat label="Runda" value={`${round}/${TOTAL_ROUNDS}`} />
         <Stat label="Wynik" value={score} />
         <Stat label="Linie" value={lines} />
         <Stat label="Prędkość" value={speed} />
+        <Stat label="Czas" value={formatTime(timeLeft)} />
       </div>
 
       <div
@@ -358,17 +411,40 @@ export function Tetris() {
           ))}
         </div>
 
-        {(paused || gameOver) && (
+        {(paused || gameOver || roundOver !== null || matchOver) && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
             <div className="text-center">
               <div className="text-2xl font-bold text-foreground mb-2">
-                {gameOver ? "Koniec gry" : "Pauza"}
+                {matchOver
+                  ? "Koniec meczu"
+                  : roundOver === "time"
+                    ? `Koniec rundy ${round}`
+                    : roundOver === "topout"
+                      ? `Skucha! Runda ${round}`
+                      : gameOver
+                        ? "Koniec gry"
+                        : "Pauza"}
               </div>
+              {roundOver !== null && !matchOver && (
+                <div className="text-sm text-muted-foreground mb-3">
+                  Następna runda: {round + 1} (prędkość {round + 1})
+                </div>
+              )}
               <button
-                onClick={() => (gameOver ? reset() : setPaused(false))}
+                onClick={() => {
+                  if (matchOver || gameOver) reset();
+                  else if (roundOver !== null) nextRound();
+                  else setPaused(false);
+                }}
                 className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90"
               >
-                {gameOver ? "Zagraj jeszcze raz" : "Wznów"}
+                {matchOver || gameOver
+                  ? "Zagraj jeszcze raz"
+                  : roundOver !== null
+                    ? round >= TOTAL_ROUNDS
+                      ? "Zakończ"
+                      : "Następna runda"
+                    : "Wznów"}
               </button>
             </div>
           </div>
@@ -376,21 +452,6 @@ export function Tetris() {
       </div>
 
       <NextPreview piece={nextPiece} />
-
-      <div className="w-full">
-        <label className="flex items-center justify-between text-sm text-muted-foreground mb-1">
-          <span>Prędkość (testowa)</span>
-          <span className="text-foreground font-mono">{speed}</span>
-        </label>
-        <input
-          type="range"
-          min={1}
-          max={20}
-          value={speed}
-          onChange={(e) => setSpeed(Number(e.target.value))}
-          className="w-full accent-[var(--primary)]"
-        />
-      </div>
 
       <div className="grid grid-cols-3 gap-2 w-full sm:hidden">
         <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
