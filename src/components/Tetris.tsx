@@ -471,13 +471,19 @@ export function Tetris() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex flex-col items-center">
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className="text-lg font-mono font-bold text-foreground">{value}</span>
     </div>
   );
+}
+
+function formatTime(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
 function TouchBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
