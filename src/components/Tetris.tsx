@@ -4,6 +4,13 @@ const COLS = 10;
 const ROWS = 20;
 const TOTAL_ROUNDS = 10;
 const ROUND_SECONDS = 120;
+const MULTIPLIER_SECONDS = 20;
+
+// Multiplier value for a given round (one-time use per round, lasts 20s)
+function multiplierForRound(round: number): number {
+  // round 1 → 2x, round 10 → 11x
+  return 1 + round;
+}
 
 type CellValue = 0 | TetrominoKey;
 type TetrominoKey = "I" | "O" | "T" | "S" | "Z" | "J" | "L";
@@ -127,6 +134,9 @@ export function Tetris() {
   const [matchOver, setMatchOver] = useState(false);
   const [paused, setPaused] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [multiplierUsed, setMultiplierUsed] = useState(false);
+  const [multiplierActive, setMultiplierActive] = useState(false);
+  const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
 
   const speed = round;
 
@@ -136,6 +146,8 @@ export function Tetris() {
   const pausedRef = useRef(paused);
   const gameOverRef = useRef(gameOver);
   const roundOverRef = useRef(roundOver);
+  const multiplierActiveRef = useRef(multiplierActive);
+  const multiplierValueRef = useRef(multiplierForRound(round));
 
   boardRef.current = board;
   pieceRef.current = piece;
@@ -143,6 +155,8 @@ export function Tetris() {
   pausedRef.current = paused || roundOver !== null || matchOver;
   gameOverRef.current = gameOver;
   roundOverRef.current = roundOver;
+  multiplierActiveRef.current = multiplierActive;
+  multiplierValueRef.current = multiplierForRound(round);
 
   const reset = useCallback(() => {
     setBoard(emptyBoard());
@@ -156,6 +170,9 @@ export function Tetris() {
     setMatchOver(false);
     setGameOver(false);
     setPaused(false);
+    setMultiplierUsed(false);
+    setMultiplierActive(false);
+    setMultiplierTimeLeft(0);
   }, []);
 
   const resetBoardOnly = useCallback(() => {
@@ -175,9 +192,20 @@ export function Tetris() {
       setTimeLeft(ROUND_SECONDS);
       setRoundOver(null);
       resetBoardOnly();
+      setMultiplierUsed(false);
+      setMultiplierActive(false);
+      setMultiplierTimeLeft(0);
       return nr;
     });
   }, [resetBoardOnly]);
+
+  const activateMultiplier = useCallback(() => {
+    if (multiplierUsed || multiplierActive) return;
+    if (roundOverRef.current !== null || matchOver || gameOver) return;
+    setMultiplierUsed(true);
+    setMultiplierActive(true);
+    setMultiplierTimeLeft(MULTIPLIER_SECONDS);
+  }, [multiplierUsed, multiplierActive, matchOver, gameOver]);
 
   const spawnNext = useCallback(() => {
     setPiece((prevNext) => {
@@ -202,8 +230,9 @@ export function Tetris() {
     setBoard(cleared);
     if (n > 0) {
       setLines((l) => l + n);
-      // Phase 1 scoring placeholder: speed × 10 per line
-      setScore((s) => s + n * speedRef.current * 10);
+      // Phase 1 scoring: speed × 10 per line, × active multiplier
+      const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
+      setScore((s) => s + n * speedRef.current * 10 * mult);
     }
     spawnNext();
   }, [spawnNext]);
@@ -283,6 +312,21 @@ export function Tetris() {
     return () => clearInterval(id);
   }, [matchOver, roundOver, round]);
 
+  // multiplier countdown
+  useEffect(() => {
+    if (!multiplierActive) return;
+    const id = setInterval(() => {
+      setMultiplierTimeLeft((t) => {
+        if (t <= 1) {
+          setMultiplierActive(false);
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [multiplierActive]);
+
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -317,11 +361,16 @@ export function Tetris() {
         case "P":
           setPaused((v) => !v);
           break;
+        case "m":
+        case "M":
+          e.preventDefault();
+          activateMultiplier();
+          break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tryMove, rotate, hardDrop, reset]);
+  }, [tryMove, rotate, hardDrop, reset, activateMultiplier]);
 
   // touch
   const touchRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
@@ -379,6 +428,30 @@ export function Tetris() {
         <Stat label="Linie" value={lines} />
         <Stat label="Prędkość" value={speed} />
         <Stat label="Czas" value={formatTime(timeLeft)} />
+      </div>
+
+      <div className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Mnożnik tej rundy
+          </span>
+          <span className="text-base font-mono font-bold text-foreground">
+            ×{multiplierForRound(round)}
+            {multiplierActive && (
+              <span className="ml-2 text-primary">aktywny {multiplierTimeLeft}s</span>
+            )}
+            {!multiplierActive && multiplierUsed && (
+              <span className="ml-2 text-muted-foreground">wykorzystany</span>
+            )}
+          </span>
+        </div>
+        <button
+          onClick={activateMultiplier}
+          disabled={multiplierUsed || multiplierActive || roundOver !== null || matchOver || gameOver}
+          className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
+        >
+          {multiplierActive ? `${multiplierTimeLeft}s` : `×${multiplierForRound(round)}`}
+        </button>
       </div>
 
       <div
@@ -464,6 +537,8 @@ export function Tetris() {
 
       <p className="text-xs text-muted-foreground text-center">
         Klawiatura: ← → ruch, ↑/X obrót, ↓ soft drop, spacja hard drop, P pauza.
+        <br />
+        M — aktywuj mnożnik rundy (raz na rundę, 20s).
         <br />
         Dotyk: swipe ←/→ ruch, tap obrót, swipe ↓ soft drop, długi swipe ↓ hard drop.
       </p>
