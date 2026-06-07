@@ -473,25 +473,40 @@ export function Tetris() {
       <div className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Mnożnik tej rundy
+            Mnożniki rundy {round}
           </span>
           <span className="text-base font-mono font-bold text-foreground">
-            ×{multiplierForRound(round)}
-            {multiplierActive && (
-              <span className="ml-2 text-primary">aktywny {multiplierTimeLeft}s</span>
-            )}
-            {!multiplierActive && multiplierUsed && (
-              <span className="ml-2 text-muted-foreground">wykorzystany</span>
+            {multiplierActive ? (
+              <>
+                {fmtMult(activeMultValue)}{" "}
+                <span className="text-primary">aktywny {multiplierTimeLeft}s</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground text-sm">
+                wybierz mnożnik ({poolForRound(round).length - usedMultIdx.length} dostępnych)
+              </span>
             )}
           </span>
         </div>
-        <button
-          onClick={activateMultiplier}
-          disabled={multiplierUsed || multiplierActive || roundOver !== null || matchOver || gameOver}
-          className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
-        >
-          {multiplierActive ? `${multiplierTimeLeft}s` : `×${multiplierForRound(round)}`}
-        </button>
+      </div>
+
+      <div className="grid grid-cols-5 gap-1.5 w-full">
+        {poolForRound(round).map((val, i) => {
+          const used = usedMultIdx.includes(i);
+          const disabled =
+            used || multiplierActive || roundOver !== null || matchOver || gameOver;
+          return (
+            <button
+              key={i}
+              onClick={() => activateMultiplierAt(i)}
+              disabled={disabled}
+              className="px-2 py-2 rounded-md bg-secondary text-secondary-foreground text-sm font-mono font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent hover:text-accent-foreground"
+              title={used ? "Wykorzystany" : `Aktywuj ${fmtMult(val)} na ${MULTIPLIER_SECONDS}s`}
+            >
+              {fmtMult(val)}
+            </button>
+          );
+        })}
       </div>
 
       <div
