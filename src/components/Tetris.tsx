@@ -6,10 +6,27 @@ const TOTAL_ROUNDS = 10;
 const ROUND_SECONDS = 120;
 const MULTIPLIER_SECONDS = 20;
 
-// Multiplier value for a given round (one-time use per round, lasts 20s)
-function multiplierForRound(round: number): number {
-  // round 1 → 2x, round 10 → 11x
-  return 1 + round;
+// Per-round multiplier pools (10 values each). Calibrated so max(mult) × speed ≤ 15.
+// Early rounds: chunky (×2–×15). Late rounds: fine-grained (×0.9–×1.5).
+const MULTIPLIER_POOLS: Record<number, number[]> = {
+  1:  [2, 3, 4, 5, 6, 7, 8, 10, 12, 15],
+  2:  [1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 7.5],
+  3:  [1.3, 1.5, 1.8, 2, 2.5, 3, 3.5, 4, 4.5, 5],
+  4:  [1.2, 1.3, 1.5, 1.8, 2, 2.3, 2.6, 3, 3.5, 3.75],
+  5:  [1.1, 1.2, 1.3, 1.5, 1.7, 1.9, 2.1, 2.4, 2.7, 3],
+  6:  [0.9, 1.1, 1.2, 1.3, 1.45, 1.6, 1.8, 2, 2.2, 2.5],
+  7:  [0.9, 1.05, 1.1, 1.2, 1.3, 1.4, 1.5, 1.65, 1.85, 2.1],
+  8:  [0.9, 1.0, 1.05, 1.1, 1.2, 1.3, 1.4, 1.5, 1.65, 1.85],
+  9:  [0.9, 0.95, 1.05, 1.1, 1.15, 1.2, 1.25, 1.35, 1.5, 1.65],
+  10: [0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.4, 1.5],
+};
+
+function poolForRound(round: number): number[] {
+  return MULTIPLIER_POOLS[round] ?? MULTIPLIER_POOLS[10];
+}
+
+function fmtMult(n: number): string {
+  return Number.isInteger(n) ? `×${n}` : `×${n.toFixed(n < 1 ? 2 : 2).replace(/\.?0+$/, "")}`;
 }
 
 type CellValue = 0 | TetrominoKey;
@@ -137,6 +154,8 @@ export function Tetris() {
   const [multiplierUsed, setMultiplierUsed] = useState(false);
   const [multiplierActive, setMultiplierActive] = useState(false);
   const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
+  const [usedMultIdx, setUsedMultIdx] = useState<number[]>([]);
+  const [activeMultValue, setActiveMultValue] = useState<number>(1);
 
   const speed = round;
 
@@ -147,7 +166,7 @@ export function Tetris() {
   const gameOverRef = useRef(gameOver);
   const roundOverRef = useRef(roundOver);
   const multiplierActiveRef = useRef(multiplierActive);
-  const multiplierValueRef = useRef(multiplierForRound(round));
+  const multiplierValueRef = useRef(1);
 
   boardRef.current = board;
   pieceRef.current = piece;
@@ -156,7 +175,7 @@ export function Tetris() {
   gameOverRef.current = gameOver;
   roundOverRef.current = roundOver;
   multiplierActiveRef.current = multiplierActive;
-  multiplierValueRef.current = multiplierForRound(round);
+  multiplierValueRef.current = activeMultValue;
 
   const reset = useCallback(() => {
     setBoard(emptyBoard());
@@ -173,6 +192,8 @@ export function Tetris() {
     setMultiplierUsed(false);
     setMultiplierActive(false);
     setMultiplierTimeLeft(0);
+    setUsedMultIdx([]);
+    setActiveMultValue(1);
   }, []);
 
   const resetBoardOnly = useCallback(() => {
@@ -195,17 +216,35 @@ export function Tetris() {
       setMultiplierUsed(false);
       setMultiplierActive(false);
       setMultiplierTimeLeft(0);
+      setUsedMultIdx([]);
+      setActiveMultValue(1);
       return nr;
     });
   }, [resetBoardOnly]);
 
+  const activateMultiplierAt = useCallback(
+    (idx: number) => {
+      if (multiplierActive) return;
+      if (roundOverRef.current !== null || matchOver || gameOver) return;
+      const pool = poolForRound(round);
+      if (idx < 0 || idx >= pool.length) return;
+      if (usedMultIdx.includes(idx)) return;
+      setUsedMultIdx((arr) => [...arr, idx]);
+      setActiveMultValue(pool[idx]);
+      setMultiplierUsed(true);
+      setMultiplierActive(true);
+      setMultiplierTimeLeft(MULTIPLIER_SECONDS);
+    },
+    [multiplierActive, matchOver, gameOver, round, usedMultIdx],
+  );
+
+  // Activate first still-available multiplier (used by M shortcut).
   const activateMultiplier = useCallback(() => {
-    if (multiplierUsed || multiplierActive) return;
-    if (roundOverRef.current !== null || matchOver || gameOver) return;
-    setMultiplierUsed(true);
-    setMultiplierActive(true);
-    setMultiplierTimeLeft(MULTIPLIER_SECONDS);
-  }, [multiplierUsed, multiplierActive, matchOver, gameOver]);
+    if (multiplierActive) return;
+    const pool = poolForRound(round);
+    const idx = pool.findIndex((_, i) => !usedMultIdx.includes(i));
+    if (idx >= 0) activateMultiplierAt(idx);
+  }, [multiplierActive, round, usedMultIdx, activateMultiplierAt]);
 
   const spawnNext = useCallback(() => {
     setPiece((prevNext) => {
@@ -319,6 +358,7 @@ export function Tetris() {
       setMultiplierTimeLeft((t) => {
         if (t <= 1) {
           setMultiplierActive(false);
+          setActiveMultValue(1);
           return 0;
         }
         return t - 1;
@@ -433,25 +473,40 @@ export function Tetris() {
       <div className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Mnożnik tej rundy
+            Mnożniki rundy {round}
           </span>
           <span className="text-base font-mono font-bold text-foreground">
-            ×{multiplierForRound(round)}
-            {multiplierActive && (
-              <span className="ml-2 text-primary">aktywny {multiplierTimeLeft}s</span>
-            )}
-            {!multiplierActive && multiplierUsed && (
-              <span className="ml-2 text-muted-foreground">wykorzystany</span>
+            {multiplierActive ? (
+              <>
+                {fmtMult(activeMultValue)}{" "}
+                <span className="text-primary">aktywny {multiplierTimeLeft}s</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground text-sm">
+                wybierz mnożnik ({poolForRound(round).length - usedMultIdx.length} dostępnych)
+              </span>
             )}
           </span>
         </div>
-        <button
-          onClick={activateMultiplier}
-          disabled={multiplierUsed || multiplierActive || roundOver !== null || matchOver || gameOver}
-          className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
-        >
-          {multiplierActive ? `${multiplierTimeLeft}s` : `×${multiplierForRound(round)}`}
-        </button>
+      </div>
+
+      <div className="grid grid-cols-5 gap-1.5 w-full">
+        {poolForRound(round).map((val, i) => {
+          const used = usedMultIdx.includes(i);
+          const disabled =
+            used || multiplierActive || roundOver !== null || matchOver || gameOver;
+          return (
+            <button
+              key={i}
+              onClick={() => activateMultiplierAt(i)}
+              disabled={disabled}
+              className="px-2 py-2 rounded-md bg-secondary text-secondary-foreground text-sm font-mono font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent hover:text-accent-foreground"
+              title={used ? "Wykorzystany" : `Aktywuj ${fmtMult(val)} na ${MULTIPLIER_SECONDS}s`}
+            >
+              {fmtMult(val)}
+            </button>
+          );
+        })}
       </div>
 
       <div
@@ -538,7 +593,7 @@ export function Tetris() {
       <p className="text-xs text-muted-foreground text-center">
         Klawiatura: ← → ruch, ↑/X obrót, ↓ soft drop, spacja hard drop, P pauza.
         <br />
-        M — aktywuj mnożnik rundy (raz na rundę, 20s).
+        M — aktywuj kolejny dostępny mnożnik (20s, jeden naraz).
         <br />
         Dotyk: swipe ←/→ ruch, tap obrót, swipe ↓ soft drop, długi swipe ↓ hard drop.
       </p>
