@@ -593,7 +593,7 @@ export function Tetris() {
       <p className="text-xs text-muted-foreground text-center">
         Klawiatura: ← → ruch, ↑/X obrót, ↓ soft drop, spacja hard drop, P pauza.
         <br />
-        M — aktywuj mnożnik rundy (raz na rundę, 20s).
+        M — aktywuj kolejny dostępny mnożnik (20s, jeden naraz).
         <br />
         Dotyk: swipe ←/→ ruch, tap obrót, swipe ↓ soft drop, długi swipe ↓ hard drop.
       </p>
