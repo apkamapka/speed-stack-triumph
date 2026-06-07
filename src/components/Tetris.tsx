@@ -318,7 +318,9 @@ export function Tetris() {
       last = now;
       if (!pausedRef.current && !gameOverRef.current) {
         acc += dt;
-        const interval = gravityMs(speedRef.current);
+        const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
+        const effectiveSpeed = speedRef.current * mult;
+        const interval = gravityMs(effectiveSpeed);
         while (acc >= interval) {
           acc -= interval;
           if (!tryMove(0, 1)) {
@@ -466,7 +468,14 @@ export function Tetris() {
         <Stat label="Runda" value={`${round}/${TOTAL_ROUNDS}`} />
         <Stat label="Wynik" value={score} />
         <Stat label="Linie" value={lines} />
-        <Stat label="Prędkość" value={speed} />
+        <Stat
+          label="Prędkość"
+          value={
+            multiplierActive
+              ? `${(speed * activeMultValue).toFixed(activeMultValue < 1 || !Number.isInteger(speed * activeMultValue) ? 1 : 0)}⚡`
+              : speed
+          }
+        />
         <Stat label="Czas" value={formatTime(timeLeft)} />
       </div>
 
