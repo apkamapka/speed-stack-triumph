@@ -553,16 +553,26 @@ export function Tetris() {
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
             <div className="text-center">
               <div className="text-2xl font-bold text-foreground mb-2">
-                {matchOver
-                  ? "Koniec meczu"
-                  : roundOver === "time"
-                    ? `Koniec rundy ${round}`
-                    : roundOver === "topout"
-                      ? `Skucha! Runda ${round}`
+                {matchOver && roundOver === "topout"
+                  ? `Skucha! Koniec gry`
+                  : matchOver
+                    ? "Koniec meczu"
+                    : roundOver === "time"
+                      ? `Koniec rundy ${round}`
                       : gameOver
                         ? "Koniec gry"
                         : "Pauza"}
               </div>
+              {matchOver && (
+                <div className="text-base text-foreground mb-1">
+                  Wynik końcowy: <span className="font-mono font-bold">{score}</span>
+                </div>
+              )}
+              {matchOver && (
+                <div className="text-sm text-muted-foreground mb-3">
+                  Linie: {lines} · Rund: {round}/{TOTAL_ROUNDS}
+                </div>
+              )}
               {roundOver !== null && !matchOver && (
                 <div className="text-sm text-muted-foreground mb-3">
                   Następna runda: {round + 1} (prędkość {round + 1})
