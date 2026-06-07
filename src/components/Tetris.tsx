@@ -252,6 +252,7 @@ export function Tetris() {
       const incoming = { ...nextPieceRef.current, x: 3, y: -1, rotation: 0 };
       if (collides(boardRef.current, incoming)) {
         setRoundOver((prev) => prev ?? "topout");
+        setMatchOver(true);
         return prevNext;
       }
       setNextPiece(randomPiece());
