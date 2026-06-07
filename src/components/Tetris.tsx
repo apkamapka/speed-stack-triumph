@@ -468,7 +468,14 @@ export function Tetris() {
         <Stat label="Runda" value={`${round}/${TOTAL_ROUNDS}`} />
         <Stat label="Wynik" value={score} />
         <Stat label="Linie" value={lines} />
-        <Stat label="Prędkość" value={speed} />
+        <Stat
+          label="Prędkość"
+          value={
+            multiplierActive
+              ? `${(speed * activeMultValue).toFixed(activeMultValue < 1 || !Number.isInteger(speed * activeMultValue) ? 1 : 0)}⚡`
+              : speed
+          }
+        />
         <Stat label="Czas" value={formatTime(timeLeft)} />
       </div>
 
