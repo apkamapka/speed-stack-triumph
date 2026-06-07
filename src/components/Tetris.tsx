@@ -318,7 +318,9 @@ export function Tetris() {
       last = now;
       if (!pausedRef.current && !gameOverRef.current) {
         acc += dt;
-        const interval = gravityMs(speedRef.current);
+        const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
+        const effectiveSpeed = speedRef.current * mult;
+        const interval = gravityMs(effectiveSpeed);
         while (acc >= interval) {
           acc -= interval;
           if (!tryMove(0, 1)) {
