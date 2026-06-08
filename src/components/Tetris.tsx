@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { LocalScore } from "@/lib/localScores";
 
 const COLS = 10;
 const ROWS = 20;
@@ -143,7 +144,12 @@ function gravityMs(speed: number): number {
   return Math.round(800 * Math.pow(0.78, clamped - 1));
 }
 
-export function Tetris() {
+type TetrisProps = {
+  onExit: () => void;
+  onSaveScore: (entry: LocalScore) => void;
+};
+
+export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [board, setBoard] = useState<CellValue[][]>(emptyBoard);
   const [piece, setPiece] = useState<Piece>(() => randomPiece());
   const [nextPiece, setNextPiece] = useState<Piece>(() => randomPiece());
@@ -171,6 +177,7 @@ export function Tetris() {
   const roundOverRef = useRef(roundOver);
   const multiplierActiveRef = useRef(multiplierActive);
   const multiplierValueRef = useRef(1);
+  const savedRef = useRef(false);
 
   boardRef.current = board;
   pieceRef.current = piece;
@@ -182,6 +189,7 @@ export function Tetris() {
   multiplierValueRef.current = activeMultValue;
 
   const reset = useCallback(() => {
+    savedRef.current = false;
     setBoard(emptyBoard());
     setPiece(randomPiece());
     setNextPiece(randomPiece());
@@ -379,6 +387,14 @@ export function Tetris() {
     return () => clearInterval(id);
   }, [multiplierActive]);
 
+  // save final score to the local ranking, once per finished match
+  useEffect(() => {
+    if (matchOver && !savedRef.current) {
+      savedRef.current = true;
+      onSaveScore({ score, lines, rounds: round, date: Date.now() });
+    }
+  }, [matchOver, score, lines, round, onSaveScore]);
+
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -480,18 +496,18 @@ export function Tetris() {
     <div className="mx-auto flex h-[100dvh] w-full max-w-[480px] flex-col gap-2 overflow-hidden px-2 py-2 select-none">
       {/* Top: stats + pause */}
       <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5">
-        <Stat label="Runda" value={`${round}/${TOTAL_ROUNDS}`} />
-        <Stat label="Wynik" value={score} hot />
-        <Stat label="Linie" value={lines} />
+        <Stat label="Round" value={`${round}/${TOTAL_ROUNDS}`} />
+        <Stat label="Score" value={score} hot />
+        <Stat label="Lines" value={lines} />
         <Stat
-          label="Pręd."
+          label="Speed"
           value={multiplierActive ? `${fmtSpeed(speed * activeMultValue)}⚡` : speed}
           hot={multiplierActive}
         />
-        <Stat label="Czas" value={formatTime(timeLeft)} />
+        <Stat label="Time" value={formatTime(timeLeft)} />
         <button
           onClick={() => setPaused((v) => !v)}
-          aria-label="Pauza"
+          aria-label="Pause"
           className="ml-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary text-base text-secondary-foreground active:bg-accent active:text-accent-foreground"
         >
           {paused ? "▶" : "❚❚"}
@@ -552,46 +568,56 @@ export function Tetris() {
               <div className="px-4 text-center">
                 <div className="mb-2 text-2xl font-bold text-foreground">
                   {matchOver && roundOver === "topout"
-                    ? "Skucha! Koniec gry"
+                    ? "Stack out — game over"
                     : matchOver
-                      ? "Koniec meczu"
+                      ? "Match complete"
                       : roundOver === "time"
-                        ? `Koniec rundy ${round}`
+                        ? `Round ${round} complete`
                         : gameOver
-                          ? "Koniec gry"
-                          : "Pauza"}
+                          ? "Game over"
+                          : "Paused"}
                 </div>
                 {matchOver && (
                   <>
                     <div className="mb-1 text-base text-foreground">
-                      Wynik: <span className="font-mono font-bold">{score}</span>
+                      Score: <span className="font-mono font-bold">{score}</span>
                     </div>
                     <div className="mb-3 text-sm text-muted-foreground">
-                      Linie: {lines} · Rund: {round}/{TOTAL_ROUNDS}
+                      Lines: {lines} · Rounds: {round}/{TOTAL_ROUNDS}
                     </div>
                   </>
                 )}
                 {roundOver !== null && !matchOver && (
                   <div className="mb-3 text-sm text-muted-foreground">
-                    Następna runda: {round + 1} (prędkość {round + 1})
+                    Next round: {round + 1} (speed {round + 1})
                   </div>
                 )}
-                <button
-                  onClick={() => {
-                    if (matchOver || gameOver) reset();
-                    else if (roundOver !== null) nextRound();
-                    else setPaused(false);
-                  }}
-                  className="rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground hover:opacity-90"
-                >
-                  {matchOver || gameOver
-                    ? "Zagraj jeszcze raz"
-                    : roundOver !== null
-                      ? round >= TOTAL_ROUNDS
-                        ? "Zakończ"
-                        : "Następna runda"
-                      : "Wznów"}
-                </button>
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (matchOver || gameOver) reset();
+                      else if (roundOver !== null) nextRound();
+                      else setPaused(false);
+                    }}
+                    className="rounded-md bg-primary px-5 py-2 font-medium text-primary-foreground hover:opacity-90"
+                  >
+                    {matchOver || gameOver
+                      ? "Play again"
+                      : roundOver !== null
+                        ? round >= TOTAL_ROUNDS
+                          ? "Finish"
+                          : "Next round"
+                        : "Resume"}
+                  </button>
+                  {(paused || matchOver || gameOver) && (
+                    <button
+                      onClick={onExit}
+                      className="rounded-md px-5 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                    >
+                      Menu
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -661,7 +687,7 @@ function MultColumn({
             key={idx}
             onClick={() => onPick(idx)}
             disabled={disabled}
-            title={isUsed ? "Wykorzystany" : `Aktywuj ${fmtMult(val)} na ${MULTIPLIER_SECONDS}s`}
+            title={isUsed ? "Used" : `Activate ${fmtMult(val)} for ${MULTIPLIER_SECONDS}s`}
             className="flex flex-1 items-center justify-center rounded-md bg-secondary font-mono text-xs font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-25"
           >
             {fmtMult(val)}
@@ -689,7 +715,7 @@ function NextPreview({ piece }: { piece: Piece }) {
   for (const [x, y] of cells) grid[y][x] = piece.key;
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">Następny</span>
+      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">Next</span>
       <div
         className="grid gap-px rounded border border-border bg-card p-1"
         style={{ gridTemplateColumns: "repeat(4, 9px)" }}
