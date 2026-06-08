@@ -15,12 +15,8 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   return (
-    <div className="min-h-screen bg-background text-foreground py-6 px-4">
-      <header className="max-w-md mx-auto mb-4 text-center">
-        <h1 className="text-2xl font-bold tracking-tight">Tetris</h1>
-        <p className="text-xs text-muted-foreground">Faza 1: rdzeń + sterowanie</p>
-      </header>
+    <main className="bg-background text-foreground">
       <Tetris />
-    </div>
+    </main>
   );
 }
