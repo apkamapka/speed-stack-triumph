@@ -313,7 +313,8 @@ export function Tetris() {
   }, [lockPiece]);
 
   const softDrop = useCallback(() => {
-    if (tryMove(0, 1)) setScore((s) => s + 1);
+    // Soft drop only accelerates the fall — no points. Points come from cleared lines only.
+    tryMove(0, 1);
   }, [tryMove]);
 
   // gravity loop
@@ -497,11 +498,20 @@ export function Tetris() {
         </button>
       </div>
 
-      {/* Middle: left multipliers | board | right multipliers */}
-      <div className="flex min-h-0 flex-1 items-stretch gap-2">
-        <MultColumn pool={pool} start={0} end={5} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
+      {/* Middle: vertically-centered play row. Board height is the smaller of the
+          available height and what the width (after both columns) allows, so it
+          always fits on one screen and never clips a column. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <div
+          className="flex items-stretch gap-2"
+          style={{
+            height: "min(calc(100dvh - 140px), calc((min(100vw, 480px) - 128px) * 2))",
+            maxHeight: "100%",
+          }}
+        >
+          <MultColumn pool={pool} start={0} end={5} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
 
-        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+          <div className="relative flex items-center justify-center">
           <div
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
@@ -511,7 +521,6 @@ export function Tetris() {
               gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
               height: "100%",
               aspectRatio: `${COLS} / ${ROWS}`,
-              maxWidth: "100%",
               background: "var(--grid-line)",
             }}
           >
@@ -588,7 +597,8 @@ export function Tetris() {
           )}
         </div>
 
-        <MultColumn pool={pool} start={5} end={10} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
+          <MultColumn pool={pool} start={5} end={10} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
+        </div>
       </div>
 
       {/* Bottom: movement | next preview | actions */}
@@ -641,7 +651,7 @@ function MultColumn({
   onPick: (idx: number) => void;
 }) {
   return (
-    <div className="flex w-[clamp(38px,12vw,54px)] shrink-0 flex-col gap-1.5">
+    <div className="flex w-[48px] shrink-0 flex-col gap-1.5">
       {pool.slice(start, end).map((val, i) => {
         const idx = start + i;
         const isUsed = used.includes(idx);
