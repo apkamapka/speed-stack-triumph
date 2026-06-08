@@ -1,13 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Tetris } from "@/components/Tetris";
+import { TetrisApp } from "@/components/TetrisApp";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Tetris — graj w przeglądarce" },
-      { name: "description", content: "Mobilny Tetris z regulacją prędkości. Sterowanie dotykiem i klawiaturą." },
-      { property: "og:title", content: "Tetris — graj w przeglądarce" },
-      { property: "og:description", content: "Mobilny Tetris z regulacją prędkości." },
+      { title: "Tetris — play in your browser" },
+      {
+        name: "description",
+        content: "Mobile Tetris with rising speed and risk/reward multipliers. Touch and keyboard controls.",
+      },
+      { property: "og:title", content: "Tetris — play in your browser" },
+      { property: "og:description", content: "Mobile Tetris with rising speed and multipliers." },
     ],
   }),
   component: Index,
@@ -16,7 +19,7 @@ export const Route = createFileRoute("/")({
 function Index() {
   return (
     <main className="bg-background text-foreground">
-      <Tetris />
+      <TetrisApp />
     </main>
   );
 }
