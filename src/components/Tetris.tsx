@@ -26,7 +26,11 @@ function poolForRound(round: number): number[] {
 }
 
 function fmtMult(n: number): string {
-  return Number.isInteger(n) ? `×${n}` : `×${n.toFixed(n < 1 ? 2 : 2).replace(/\.?0+$/, "")}`;
+  return Number.isInteger(n) ? `×${n}` : `×${n.toFixed(2).replace(/\.?0+$/, "")}`;
+}
+
+function fmtSpeed(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
 type CellValue = 0 | TetrominoKey;
@@ -270,7 +274,7 @@ export function Tetris() {
     setBoard(cleared);
     if (n > 0) {
       setLines((l) => l + n);
-      // Phase 1 scoring: speed × 10 per line, × active multiplier
+      // scoring: speed × 10 per line, × active multiplier
       const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
       setScore((s) => s + n * speedRef.current * 10 * mult);
     }
@@ -307,6 +311,10 @@ export function Tetris() {
     pieceRef.current = p;
     lockPiece();
   }, [lockPiece]);
+
+  const softDrop = useCallback(() => {
+    if (tryMove(0, 1)) setScore((s) => s + 1);
+  }, [tryMove]);
 
   // gravity loop
   useEffect(() => {
@@ -388,7 +396,7 @@ export function Tetris() {
           break;
         case "ArrowDown":
           e.preventDefault();
-          if (tryMove(0, 1)) setScore((s) => s + 1);
+          softDrop();
           break;
         case "ArrowUp":
         case "x":
@@ -413,9 +421,9 @@ export function Tetris() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tryMove, rotate, hardDrop, reset, activateMultiplier]);
+  }, [tryMove, rotate, hardDrop, softDrop, reset, activateMultiplier]);
 
-  // touch
+  // touch (gestures on the board)
   const touchRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.changedTouches[0];
@@ -433,7 +441,7 @@ export function Tetris() {
       start.x = t.clientX;
       start.moved = true;
     } else if (dy >= cell && Math.abs(dy) > Math.abs(dx)) {
-      if (tryMove(0, 1)) setScore((s) => s + 1);
+      softDrop();
       start.y = t.clientY;
       start.moved = true;
     }
@@ -463,169 +471,150 @@ export function Tetris() {
     if (y >= 0 && y < ROWS && x >= 0 && x < COLS) display[y][x] = piece.key;
   }
 
+  const pool = poolForRound(round);
+  const multDisabled = multiplierActive || roundOver !== null || matchOver || gameOver;
+  const overlayUp = paused || gameOver || roundOver !== null || matchOver;
+
   return (
-    <div className="flex flex-col items-center gap-4 w-full max-w-md mx-auto">
-      <div className="flex w-full justify-between items-center text-sm">
+    <div className="mx-auto flex h-[100dvh] w-full max-w-[480px] flex-col gap-2 overflow-hidden px-2 py-2 select-none">
+      {/* Top: stats + pause */}
+      <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5">
         <Stat label="Runda" value={`${round}/${TOTAL_ROUNDS}`} />
-        <Stat label="Wynik" value={score} />
+        <Stat label="Wynik" value={score} hot />
         <Stat label="Linie" value={lines} />
         <Stat
-          label="Prędkość"
-          value={
-            multiplierActive
-              ? `${(speed * activeMultValue).toFixed(activeMultValue < 1 || !Number.isInteger(speed * activeMultValue) ? 1 : 0)}⚡`
-              : speed
-          }
+          label="Pręd."
+          value={multiplierActive ? `${fmtSpeed(speed * activeMultValue)}⚡` : speed}
+          hot={multiplierActive}
         />
         <Stat label="Czas" value={formatTime(timeLeft)} />
-      </div>
-
-      <div className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Mnożniki rundy {round}
-          </span>
-          <span className="text-base font-mono font-bold text-foreground">
-            {multiplierActive ? (
-              <>
-                {fmtMult(activeMultValue)}{" "}
-                <span className="text-primary">aktywny {multiplierTimeLeft}s</span>
-              </>
-            ) : (
-              <span className="text-muted-foreground text-sm">
-                wybierz mnożnik ({poolForRound(round).length - usedMultIdx.length} dostępnych)
-              </span>
-            )}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-5 gap-1.5 w-full">
-        {poolForRound(round).map((val, i) => {
-          const used = usedMultIdx.includes(i);
-          const disabled =
-            used || multiplierActive || roundOver !== null || matchOver || gameOver;
-          return (
-            <button
-              key={i}
-              onClick={() => activateMultiplierAt(i)}
-              disabled={disabled}
-              className="px-2 py-2 rounded-md bg-secondary text-secondary-foreground text-sm font-mono font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent hover:text-accent-foreground"
-              title={used ? "Wykorzystany" : `Aktywuj ${fmtMult(val)} na ${MULTIPLIER_SECONDS}s`}
-            >
-              {fmtMult(val)}
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        className="relative rounded-lg border border-border bg-card p-2 shadow-2xl touch-none select-none"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
-        <div
-          className="grid gap-px"
-          style={{
-            gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
-            width: "min(92vw, 360px)",
-            aspectRatio: `${COLS} / ${ROWS}`,
-            background: "var(--grid-line)",
-          }}
+        <button
+          onClick={() => setPaused((v) => !v)}
+          aria-label="Pauza"
+          className="ml-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary text-base text-secondary-foreground active:bg-accent active:text-accent-foreground"
         >
-          {display.flat().map((cell, i) => (
-            <div
-              key={i}
-              className="rounded-[2px]"
-              style={{
-                background: cell === 0 ? "var(--card)" : COLORS[cell],
-                boxShadow:
-                  cell === 0
-                    ? "inset 0 0 0 1px var(--grid-line)"
-                    : "inset 0 0 0 1px rgba(255,255,255,0.15), 0 0 6px color-mix(in oklab, currentColor 30%, transparent)",
-              }}
-            />
-          ))}
+          {paused ? "▶" : "❚❚"}
+        </button>
+      </div>
+
+      {/* Middle: left multipliers | board | right multipliers */}
+      <div className="flex min-h-0 flex-1 items-stretch gap-2">
+        <MultColumn pool={pool} start={0} end={5} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
+
+        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+          <div
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            className="grid touch-none gap-px rounded-md border border-border shadow-2xl"
+            style={{
+              gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
+              height: "100%",
+              aspectRatio: `${COLS} / ${ROWS}`,
+              maxWidth: "100%",
+              background: "var(--grid-line)",
+            }}
+          >
+            {display.flat().map((cell, i) => (
+              <div
+                key={i}
+                className="rounded-[2px]"
+                style={{
+                  background: cell === 0 ? "var(--card)" : COLORS[cell],
+                  boxShadow:
+                    cell === 0
+                      ? "inset 0 0 0 1px var(--grid-line)"
+                      : "inset 0 0 0 1px rgba(255,255,255,0.15)",
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Active multiplier badge */}
+          {multiplierActive && (
+            <div className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 rounded-full bg-primary px-2.5 py-0.5 text-xs font-bold text-primary-foreground shadow-lg">
+              {fmtMult(activeMultValue)} · {multiplierTimeLeft}s
+            </div>
+          )}
+
+          {/* Overlay: pause / round / match */}
+          {overlayUp && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/85 backdrop-blur-sm">
+              <div className="px-4 text-center">
+                <div className="mb-2 text-2xl font-bold text-foreground">
+                  {matchOver && roundOver === "topout"
+                    ? "Skucha! Koniec gry"
+                    : matchOver
+                      ? "Koniec meczu"
+                      : roundOver === "time"
+                        ? `Koniec rundy ${round}`
+                        : gameOver
+                          ? "Koniec gry"
+                          : "Pauza"}
+                </div>
+                {matchOver && (
+                  <>
+                    <div className="mb-1 text-base text-foreground">
+                      Wynik: <span className="font-mono font-bold">{score}</span>
+                    </div>
+                    <div className="mb-3 text-sm text-muted-foreground">
+                      Linie: {lines} · Rund: {round}/{TOTAL_ROUNDS}
+                    </div>
+                  </>
+                )}
+                {roundOver !== null && !matchOver && (
+                  <div className="mb-3 text-sm text-muted-foreground">
+                    Następna runda: {round + 1} (prędkość {round + 1})
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    if (matchOver || gameOver) reset();
+                    else if (roundOver !== null) nextRound();
+                    else setPaused(false);
+                  }}
+                  className="rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground hover:opacity-90"
+                >
+                  {matchOver || gameOver
+                    ? "Zagraj jeszcze raz"
+                    : roundOver !== null
+                      ? round >= TOTAL_ROUNDS
+                        ? "Zakończ"
+                        : "Następna runda"
+                      : "Wznów"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {(paused || gameOver || roundOver !== null || matchOver) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-foreground mb-2">
-                {matchOver && roundOver === "topout"
-                  ? `Skucha! Koniec gry`
-                  : matchOver
-                    ? "Koniec meczu"
-                    : roundOver === "time"
-                      ? `Koniec rundy ${round}`
-                      : gameOver
-                        ? "Koniec gry"
-                        : "Pauza"}
-              </div>
-              {matchOver && (
-                <div className="text-base text-foreground mb-1">
-                  Wynik końcowy: <span className="font-mono font-bold">{score}</span>
-                </div>
-              )}
-              {matchOver && (
-                <div className="text-sm text-muted-foreground mb-3">
-                  Linie: {lines} · Rund: {round}/{TOTAL_ROUNDS}
-                </div>
-              )}
-              {roundOver !== null && !matchOver && (
-                <div className="text-sm text-muted-foreground mb-3">
-                  Następna runda: {round + 1} (prędkość {round + 1})
-                </div>
-              )}
-              <button
-                onClick={() => {
-                  if (matchOver || gameOver) reset();
-                  else if (roundOver !== null) nextRound();
-                  else setPaused(false);
-                }}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90"
-              >
-                {matchOver || gameOver
-                  ? "Zagraj jeszcze raz"
-                  : roundOver !== null
-                    ? round >= TOTAL_ROUNDS
-                      ? "Zakończ"
-                      : "Następna runda"
-                    : "Wznów"}
-              </button>
-            </div>
-          </div>
-        )}
+        <MultColumn pool={pool} start={5} end={10} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
       </div>
 
-      <NextPreview piece={nextPiece} />
-
-      <div className="grid grid-cols-3 gap-2 w-full sm:hidden">
-        <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
-        <TouchBtn onClick={rotate}>⟳</TouchBtn>
-        <TouchBtn onClick={() => tryMove(1, 0)}>▶</TouchBtn>
-        <TouchBtn onClick={() => tryMove(0, 1)}>▼</TouchBtn>
-        <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
-        <TouchBtn onClick={() => setPaused((v) => !v)}>{paused ? "▶︎" : "❚❚"}</TouchBtn>
+      {/* Bottom: movement | next preview | actions */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-1.5">
+          <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
+          <TouchBtn onClick={softDrop}>▼</TouchBtn>
+          <TouchBtn onClick={() => tryMove(1, 0)}>▶</TouchBtn>
+        </div>
+        <NextPreview piece={nextPiece} />
+        <div className="flex gap-1.5">
+          <TouchBtn onClick={rotate}>⟳</TouchBtn>
+          <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
+        </div>
       </div>
-
-      <p className="text-xs text-muted-foreground text-center">
-        Klawiatura: ← → ruch, ↑/X obrót, ↓ soft drop, spacja hard drop, P pauza.
-        <br />
-        M — aktywuj kolejny dostępny mnożnik (20s, jeden naraz).
-        <br />
-        Dotyk: swipe ←/→ ruch, tap obrót, swipe ↓ soft drop, długi swipe ↓ hard drop.
-      </p>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function Stat({ label, value, hot }: { label: string; value: number | string; hot?: boolean }) {
   return (
-    <div className="flex flex-col items-center">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className="text-lg font-mono font-bold text-foreground">{value}</span>
+    <div className="flex min-w-0 flex-1 flex-col items-center leading-tight">
+      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={`font-mono text-sm font-bold ${hot ? "text-primary" : "text-foreground"}`}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -636,11 +625,48 @@ function formatTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
+function MultColumn({
+  pool,
+  start,
+  end,
+  used,
+  disabledAll,
+  onPick,
+}: {
+  pool: number[];
+  start: number;
+  end: number;
+  used: number[];
+  disabledAll: boolean;
+  onPick: (idx: number) => void;
+}) {
+  return (
+    <div className="flex w-[clamp(38px,12vw,54px)] shrink-0 flex-col gap-1.5">
+      {pool.slice(start, end).map((val, i) => {
+        const idx = start + i;
+        const isUsed = used.includes(idx);
+        const disabled = isUsed || disabledAll;
+        return (
+          <button
+            key={idx}
+            onClick={() => onPick(idx)}
+            disabled={disabled}
+            title={isUsed ? "Wykorzystany" : `Aktywuj ${fmtMult(val)} na ${MULTIPLIER_SECONDS}s`}
+            className="flex flex-1 items-center justify-center rounded-md bg-secondary font-mono text-xs font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-25"
+          >
+            {fmtMult(val)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function TouchBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="py-3 rounded-md bg-secondary text-secondary-foreground text-xl font-bold active:bg-accent active:text-accent-foreground"
+      className="flex h-12 w-12 items-center justify-center rounded-lg bg-secondary text-xl font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground"
     >
       {children}
     </button>
@@ -652,16 +678,16 @@ function NextPreview({ piece }: { piece: Piece }) {
   const grid = Array.from({ length: 4 }, () => Array<CellValue>(4).fill(0));
   for (const [x, y] of cells) grid[y][x] = piece.key;
   return (
-    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-      <span>Następny:</span>
+    <div className="flex flex-col items-center gap-0.5">
+      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">Następny</span>
       <div
-        className="grid gap-px p-1 rounded bg-card border border-border"
-        style={{ gridTemplateColumns: "repeat(4, 14px)" }}
+        className="grid gap-px rounded border border-border bg-card p-1"
+        style={{ gridTemplateColumns: "repeat(4, 9px)" }}
       >
         {grid.flat().map((c, i) => (
           <div
             key={i}
-            className="w-[14px] h-[14px] rounded-[2px]"
+            className="h-[9px] w-[9px] rounded-[1px]"
             style={{ background: c === 0 ? "transparent" : COLORS[c] }}
           />
         ))}
