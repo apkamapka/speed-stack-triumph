@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,17 @@ export function ScoreSubmitDialog({
 
   const sending = status === "sending";
   const done = status === "sent";
+
+  // Reset to a fresh form every time the dialog opens for a new match.
+  // Without this, after one successful submit the status stays "sent" and
+  // reopening would show the old success screen instead of the form.
+  useEffect(() => {
+    if (open) {
+      setStatus("idle");
+      setError("");
+      setComment("");
+    }
+  }, [open]);
 
   async function handleSubmit() {
     setError("");
