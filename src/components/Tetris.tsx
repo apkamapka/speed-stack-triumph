@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LocalScore } from "@/lib/localScores";
+import { ScoreSubmitDialog } from "@/components/ScoreSubmitDialog";
 
 const COLS = 10;
 const ROWS = 20;
@@ -161,6 +162,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [matchOver, setMatchOver] = useState(false);
   const [paused, setPaused] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
   const [multiplierUsed, setMultiplierUsed] = useState(false);
   const [multiplierActive, setMultiplierActive] = useState(false);
   const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
@@ -593,6 +595,14 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
                   </div>
                 )}
                 <div className="flex flex-col items-center gap-2">
+                  {matchOver && (
+                    <button
+                      onClick={() => setSubmitOpen(true)}
+                      className="rounded-md border border-primary px-5 py-2 text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground"
+                    >
+                      Submit to Global Ranking ↗
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       if (matchOver || gameOver) reset();
@@ -640,6 +650,14 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
           <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
         </div>
       </div>
+
+      <ScoreSubmitDialog
+        open={submitOpen}
+        onOpenChange={setSubmitOpen}
+        score={score}
+        lines={lines}
+        rounds={round}
+      />
     </div>
   );
 }
