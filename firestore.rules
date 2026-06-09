@@ -1,1 +1,32 @@
+rules_version = '2';
 
+// Leaderboard rules.
+// - Anyone can read (public ranking).
+// - Anyone can create a score, but only if it is well-formed.
+// - No one can edit or delete from the client. Moderation is done manually
+//   in the Firebase console (deleting a document = losing the leaderboard spot).
+//
+// NOTE: rules validate the SHAPE of data, not game logic. A determined player
+// can still POST a fake score. Real anti-cheat (App Check, Cloud Functions,
+// signed payloads) is a later hardening step.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{id} {
+      allow read: if true;
+      allow create: if isValidScore(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    function isValidScore(d) {
+      return d.keys().hasOnly(['nick', 'country', 'comment', 'score', 'lines', 'rounds', 'createdAt'])
+        && d.nick is string && d.nick.size() >= 1 && d.nick.size() <= 20
+        && d.country is string && d.country.matches('[A-Z]{2}')
+        && d.comment is string && d.comment.size() <= 140
+        && d.score is int && d.score >= 0 && d.score <= 100000000
+        && d.lines is int && d.lines >= 0 && d.lines <= 100000
+        && d.rounds is int && d.rounds >= 0 && d.rounds <= 10
+        && d.createdAt == request.time; // forces serverTimestamp()
+    }
+  }
+}
