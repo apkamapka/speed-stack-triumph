@@ -634,10 +634,11 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
         </div>
       </div>
 
-      {/* Bottom controls: left · rotate · drop · right */}
-      <div className="flex items-center justify-between gap-2 px-2">
+      {/* Bottom controls: left · rotate · soft drop · hard drop · right */}
+      <div className="flex items-stretch gap-2 px-1">
         <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
         <TouchBtn onClick={rotate}>⟳</TouchBtn>
+        <TouchBtn onClick={softDrop}>▼</TouchBtn>
         <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
         <TouchBtn onClick={() => tryMove(1, 0)}>▶</TouchBtn>
       </div>
@@ -714,7 +715,7 @@ function TouchBtn({ children, onClick }: { children: React.ReactNode; onClick: (
   return (
     <button
       onClick={onClick}
-      className="flex h-12 w-12 items-center justify-center rounded-lg bg-secondary text-xl font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground"
+      className="flex h-14 flex-1 items-center justify-center rounded-lg bg-secondary text-2xl font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground"
     >
       {children}
     </button>
