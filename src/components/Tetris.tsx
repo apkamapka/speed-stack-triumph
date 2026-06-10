@@ -23,8 +23,16 @@ const MULTIPLIER_POOLS: Record<number, number[]> = {
   10: [0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.4, 1.5],
 };
 
+// We display 9 multiplier slots (the NEXT-piece preview takes the 10th slot).
+// To keep the carefully-calibrated pools as the single source of truth, we
+// derive a 9-value pool by dropping one mid-range value. The floor (entry
+// multiplier) and the deliberate per-round ceiling (e.g. ×15 in round 1) are
+// preserved. Change DROPPED_MULT_INDEX to remove a different value instead.
+const DROPPED_MULT_INDEX = 6;
+
 function poolForRound(round: number): number[] {
-  return MULTIPLIER_POOLS[round] ?? MULTIPLIER_POOLS[10];
+  const base = MULTIPLIER_POOLS[round] ?? MULTIPLIER_POOLS[10];
+  return [...base.slice(0, DROPPED_MULT_INDEX), ...base.slice(DROPPED_MULT_INDEX + 1)];
 }
 
 function fmtMult(n: number): string {
@@ -161,9 +169,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [roundOver, setRoundOver] = useState<null | "time" | "topout">(null);
   const [matchOver, setMatchOver] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [gameOver, setGameOver] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [multiplierUsed, setMultiplierUsed] = useState(false);
   const [multiplierActive, setMultiplierActive] = useState(false);
   const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
   const [usedMultIdx, setUsedMultIdx] = useState<number[]>([]);
@@ -175,7 +181,6 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const pieceRef = useRef(piece);
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
-  const gameOverRef = useRef(gameOver);
   const roundOverRef = useRef(roundOver);
   const multiplierActiveRef = useRef(multiplierActive);
   const multiplierValueRef = useRef(1);
@@ -185,7 +190,6 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   pieceRef.current = piece;
   speedRef.current = speed;
   pausedRef.current = paused || roundOver !== null || matchOver;
-  gameOverRef.current = gameOver;
   roundOverRef.current = roundOver;
   multiplierActiveRef.current = multiplierActive;
   multiplierValueRef.current = activeMultValue;
@@ -201,9 +205,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     setTimeLeft(ROUND_SECONDS);
     setRoundOver(null);
     setMatchOver(false);
-    setGameOver(false);
     setPaused(false);
-    setMultiplierUsed(false);
     setMultiplierActive(false);
     setMultiplierTimeLeft(0);
     setUsedMultIdx([]);
@@ -227,7 +229,6 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
       setTimeLeft(ROUND_SECONDS);
       setRoundOver(null);
       resetBoardOnly();
-      setMultiplierUsed(false);
       setMultiplierActive(false);
       setMultiplierTimeLeft(0);
       setUsedMultIdx([]);
@@ -239,17 +240,16 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const activateMultiplierAt = useCallback(
     (idx: number) => {
       if (multiplierActive) return;
-      if (roundOverRef.current !== null || matchOver || gameOver) return;
+      if (roundOverRef.current !== null || matchOver) return;
       const pool = poolForRound(round);
       if (idx < 0 || idx >= pool.length) return;
       if (usedMultIdx.includes(idx)) return;
       setUsedMultIdx((arr) => [...arr, idx]);
       setActiveMultValue(pool[idx]);
-      setMultiplierUsed(true);
       setMultiplierActive(true);
       setMultiplierTimeLeft(MULTIPLIER_SECONDS);
     },
-    [multiplierActive, matchOver, gameOver, round, usedMultIdx],
+    [multiplierActive, matchOver, round, usedMultIdx],
   );
 
   // Activate first still-available multiplier (used by M shortcut).
@@ -329,14 +329,13 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
 
   // gravity loop
   useEffect(() => {
-    if (gameOver) return;
     let raf = 0;
     let last = performance.now();
     let acc = 0;
     const tick = (now: number) => {
       const dt = now - last;
       last = now;
-      if (!pausedRef.current && !gameOverRef.current) {
+      if (!pausedRef.current) {
         acc += dt;
         const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
         const effectiveSpeed = speedRef.current * mult;
@@ -354,7 +353,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [tryMove, lockPiece, gameOver]);
+  }, [tryMove, lockPiece]);
 
   // round timer
   useEffect(() => {
@@ -400,10 +399,6 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (gameOverRef.current) {
-        if (e.key === "Enter" || e.key === " ") reset();
-        return;
-      }
       switch (e.key) {
         case "ArrowLeft":
           e.preventDefault();
@@ -440,7 +435,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tryMove, rotate, hardDrop, softDrop, reset, activateMultiplier]);
+  }, [tryMove, rotate, hardDrop, softDrop, activateMultiplier]);
 
   // touch (gestures on the board)
   const touchRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
@@ -469,10 +464,6 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     const start = touchRef.current;
     touchRef.current = null;
     if (!start) return;
-    if (gameOverRef.current) {
-      reset();
-      return;
-    }
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
@@ -491,8 +482,8 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   }
 
   const pool = poolForRound(round);
-  const multDisabled = multiplierActive || roundOver !== null || matchOver || gameOver;
-  const overlayUp = paused || gameOver || roundOver !== null || matchOver;
+  const multDisabled = multiplierActive || roundOver !== null || matchOver;
+  const overlayUp = paused || roundOver !== null || matchOver;
 
   return (
     <div className="mx-auto flex h-[100dvh] w-full max-w-[480px] flex-col gap-2 overflow-hidden px-2 py-2 select-none">
@@ -527,7 +518,15 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
             maxHeight: "100%",
           }}
         >
-          <MultColumn pool={pool} start={0} end={5} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
+          <MultColumn
+            pool={pool}
+            start={0}
+            end={4}
+            used={usedMultIdx}
+            disabledAll={multDisabled}
+            onPick={activateMultiplierAt}
+            header={<NextPreview piece={nextPiece} />}
+          />
 
           <div className="relative flex items-center justify-center">
           <div
@@ -575,9 +574,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
                       ? "Match complete"
                       : roundOver === "time"
                         ? `Round ${round} complete`
-                        : gameOver
-                          ? "Game over"
-                          : "Paused"}
+                        : "Paused"}
                 </div>
                 {matchOver && (
                   <>
@@ -605,13 +602,13 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
                   )}
                   <button
                     onClick={() => {
-                      if (matchOver || gameOver) reset();
+                      if (matchOver) reset();
                       else if (roundOver !== null) nextRound();
                       else setPaused(false);
                     }}
                     className="rounded-md bg-primary px-5 py-2 font-medium text-primary-foreground hover:opacity-90"
                   >
-                    {matchOver || gameOver
+                    {matchOver
                       ? "Play again"
                       : roundOver !== null
                         ? round >= TOTAL_ROUNDS
@@ -619,7 +616,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
                           : "Next round"
                         : "Resume"}
                   </button>
-                  {(paused || matchOver || gameOver) && (
+                  {(paused || matchOver) && (
                     <button
                       onClick={onExit}
                       className="rounded-md px-5 py-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -633,22 +630,16 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
           )}
         </div>
 
-          <MultColumn pool={pool} start={5} end={10} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
+          <MultColumn pool={pool} start={4} end={9} used={usedMultIdx} disabledAll={multDisabled} onPick={activateMultiplierAt} />
         </div>
       </div>
 
-      {/* Bottom: movement | next preview | actions */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-1.5">
-          <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
-          <TouchBtn onClick={softDrop}>▼</TouchBtn>
-          <TouchBtn onClick={() => tryMove(1, 0)}>▶</TouchBtn>
-        </div>
-        <NextPreview piece={nextPiece} />
-        <div className="flex gap-1.5">
-          <TouchBtn onClick={rotate}>⟳</TouchBtn>
-          <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
-        </div>
+      {/* Bottom controls: left · rotate · drop · right */}
+      <div className="flex items-center justify-between gap-2 px-2">
+        <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
+        <TouchBtn onClick={rotate}>⟳</TouchBtn>
+        <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
+        <TouchBtn onClick={() => tryMove(1, 0)}>▶</TouchBtn>
       </div>
 
       <ScoreSubmitDialog
@@ -686,6 +677,7 @@ function MultColumn({
   used,
   disabledAll,
   onPick,
+  header,
 }: {
   pool: number[];
   start: number;
@@ -693,9 +685,11 @@ function MultColumn({
   used: number[];
   disabledAll: boolean;
   onPick: (idx: number) => void;
+  header?: React.ReactNode;
 }) {
   return (
     <div className="flex w-[48px] shrink-0 flex-col gap-1.5">
+      {header}
       {pool.slice(start, end).map((val, i) => {
         const idx = start + i;
         const isUsed = used.includes(idx);
@@ -732,16 +726,13 @@ function NextPreview({ piece }: { piece: Piece }) {
   const grid = Array.from({ length: 4 }, () => Array<CellValue>(4).fill(0));
   for (const [x, y] of cells) grid[y][x] = piece.key;
   return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="text-[9px] uppercase tracking-wide text-muted-foreground">Next</span>
-      <div
-        className="grid gap-px rounded border border-border bg-card p-1"
-        style={{ gridTemplateColumns: "repeat(4, 9px)" }}
-      >
+    <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-md bg-secondary py-1">
+      <span className="text-[8px] uppercase tracking-wide text-muted-foreground">Next</span>
+      <div className="grid gap-px" style={{ gridTemplateColumns: "repeat(4, 8px)" }}>
         {grid.flat().map((c, i) => (
           <div
             key={i}
-            className="h-[9px] w-[9px] rounded-[1px]"
+            className="h-[8px] w-[8px] rounded-[1px]"
             style={{ background: c === 0 ? "transparent" : COLORS[c] }}
           />
         ))}
