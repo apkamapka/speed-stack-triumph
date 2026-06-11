@@ -73,16 +73,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Speed Stack Triumph" },
+      { title: "TetSpeed" },
       {
         name: "description",
-        content: "Mobile Tetris with rising speed and risk/reward multipliers. Touch and keyboard controls.",
+        content: "TetSpeed — a mobile block-stacking game with rising speed and risk/reward multipliers. Touch and keyboard controls.",
       },
       { name: "author", content: "akappstudio" },
-      { property: "og:title", content: "Speed Stack Triumph" },
+      { property: "og:title", content: "TetSpeed" },
       {
         property: "og:description",
-        content: "Mobile Tetris with rising speed and multipliers.",
+        content: "TetSpeed — block stacking with rising speed and multipliers.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
