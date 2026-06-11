@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { COUNTRIES } from "@/lib/countries";
 import { submitScore } from "@/lib/globalScores";
+import { loadProfile, saveProfile } from "@/lib/playerProfile";
 
 const GLOBAL_RANKING_URL = "https://akappstudio.pl/highscore/tetspeed";
 
@@ -39,14 +40,20 @@ export function ScoreSubmitDialog({
   const sending = status === "sending";
   const done = status === "sent";
 
-  // Reset to a fresh form every time the dialog opens for a new match.
-  // Without this, after one successful submit the status stays "sent" and
-  // reopening would show the old success screen instead of the form.
+  // Fresh form every time the dialog opens for a new match, prefilled with the
+  // remembered profile so a returning player only has to tap Submit.
   useEffect(() => {
     if (open) {
       setStatus("idle");
       setError("");
-      setComment("");
+      const p = loadProfile();
+      if (p) {
+        setNick(p.nick);
+        setCountry(p.country);
+        setComment(p.comment);
+      } else {
+        setComment("");
+      }
     }
   }, [open]);
 
@@ -59,6 +66,7 @@ export function ScoreSubmitDialog({
     setStatus("sending");
     try {
       await submitScore({ nick, country, comment, score, lines, rounds });
+      saveProfile({ nick: nick.trim(), country, comment });
       setStatus("sent");
     } catch (e) {
       setStatus("error");
