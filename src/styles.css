@@ -99,8 +99,7 @@
   --sidebar: oklch(0.984 0.003 247.858);
   --sidebar-foreground: oklch(0.129 0.042 264.695);
   --sidebar-primary: oklch(0.208 0.042 265.755);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);  --sidebar-accent: oklch(0.968 0.007 247.896);
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
@@ -149,5 +148,42 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+}
+
+/* --- Main menu: falling tetromino background + title glow --- */
+@keyframes menu-fall {
+  0% {
+    transform: translateY(-20vh) rotate(0deg);
+  }
+  100% {
+    transform: translateY(120vh) rotate(300deg);
+  }
+}
+
+@keyframes title-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 18px color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+  50% {
+    text-shadow: 0 0 34px color-mix(in srgb, var(--primary) 80%, transparent);
+  }
+}
+
+.menu-fall {
+  animation-name: menu-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.title-glow {
+  animation: title-glow 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-fall,
+  .title-glow {
+    animation: none;
   }
 }
