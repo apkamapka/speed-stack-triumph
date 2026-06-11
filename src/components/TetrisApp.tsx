@@ -45,11 +45,8 @@ function Menu({
       {/* Title */}
       <div className="relative text-center">
         <h1 className="font-black leading-none tracking-tight">
-          <span className="title-glow block bg-gradient-to-r from-primary via-cyan-200 to-primary bg-clip-text text-[2.7rem] text-transparent">
-            SPEED STACK
-          </span>
-          <span className="mt-2 block text-2xl tracking-[0.45em] text-foreground/90">
-            TRIUMPH
+          <span className="title-glow block bg-gradient-to-r from-primary via-cyan-200 to-primary bg-clip-text text-[3.4rem] tracking-[0.08em] text-transparent">
+            TETSPEED
           </span>
         </h1>
         <p className="mt-4 text-sm text-muted-foreground">
@@ -81,24 +78,45 @@ function Menu({
         </a>
       </div>
 
-      {/* Studio credit */}
-      <a
-        href="https://akappstudio.pl/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group relative mt-2 flex flex-col items-center gap-2 opacity-70 transition-opacity hover:opacity-100"
-      >
-        <img
-          src="/akapp-logo.png"
-          alt="akApp studio logo"
-          width={48}
-          height={48}
-          className="h-12 w-12 rounded-full"
-        />
-        <span className="text-xs text-muted-foreground transition-colors group-hover:text-foreground">
-          created by <span className="font-semibold">akApp studio</span>
-        </span>
-      </a>
+      {/* Studio credit + legal links */}
+      <div className="relative mt-2 flex flex-col items-center gap-2">
+        <a
+          href="https://akappstudio.pl/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group flex flex-col items-center gap-2 opacity-70 transition-opacity hover:opacity-100"
+        >
+          <img
+            src="/akapp-logo.png"
+            alt="akApp studio logo"
+            width={48}
+            height={48}
+            className="h-12 w-12 rounded-full"
+          />
+          <span className="text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+            created by <span className="font-semibold">akApp studio</span>
+          </span>
+        </a>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
+          <a
+            href="https://akappstudio.pl/Tetspeed/Terms%20of%20Service/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors hover:text-foreground"
+          >
+            Terms of Service
+          </a>
+          <span aria-hidden="true">·</span>
+          <a
+            href="https://akappstudio.pl/Tetspeed/Privacy%20Policy/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors hover:text-foreground"
+          >
+            Privacy Policy
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
