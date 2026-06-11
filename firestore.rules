@@ -2,13 +2,14 @@ rules_version = '2';
 
 // Leaderboard rules.
 // - Anyone can read (public ranking).
-// - Anyone can create a score, but only if it is well-formed.
+// - Anyone can create a score, but only if it is well-formed AND internally
+//   consistent (score can't exceed what the claimed line count allows).
 // - No one can edit or delete from the client. Moderation is done manually
 //   in the Firebase console (deleting a document = losing the leaderboard spot).
 //
-// NOTE: rules validate the SHAPE of data, not game logic. A determined player
-// can still POST a fake score. Real anti-cheat (App Check, Cloud Functions,
-// signed payloads) is a later hardening step.
+// The consistency check below blocks casual cheating: posted data must look
+// like a result the game could actually produce. App Check can be added later
+// as a second layer if real abuse shows up.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -23,9 +24,13 @@ service cloud.firestore {
         && d.nick is string && d.nick.size() >= 1 && d.nick.size() <= 20
         && d.country is string && d.country.matches('[A-Z]{2}')
         && d.comment is string && d.comment.size() <= 140
-        && d.score is int && d.score >= 0 && d.score <= 100000000
-        && d.lines is int && d.lines >= 0 && d.lines <= 100000
-        && d.rounds is int && d.rounds >= 0 && d.rounds <= 10
+        && d.score is int && d.score >= 0
+        && d.lines is int && d.lines >= 0 && d.lines <= 600
+        && d.rounds is int && d.rounds >= 1 && d.rounds <= 10
+        // Consistency: max points per line = speed 10 × 10 pts × multiplier 15 = 1500.
+        // A score higher than lines × 1500 is impossible in the game.
+        // Implies score == 0 when lines == 0.
+        && d.score <= d.lines * 1500
         && d.createdAt == request.time; // forces serverTimestamp()
     }
   }
