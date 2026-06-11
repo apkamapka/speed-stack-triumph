@@ -7,6 +7,17 @@ const ROWS = 20;
 const TOTAL_ROUNDS = 10;
 const ROUND_SECONDS = 120;
 const MULTIPLIER_SECONDS = 20;
+const LOCK_DELAY_MS = 300; // grace window after the piece touches down
+const MAX_LOCK_RESETS = 2; // how many times moving/rotating can extend the window
+const FLASH_MS = 140; // line-clear flash duration
+const DAS_MS = 170; // hold delay before a touch button starts auto-repeating
+const ARR_MS = 55; // auto-repeat rate while holding
+
+function vibrate(pattern: number | number[]) {
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    navigator.vibrate(pattern);
+  }
+}
 
 // Per-round multiplier pools (10 values each). Calibrated so max(mult) × speed ≤ 15.
 // Early rounds: chunky (×2–×15). Late rounds: fine-grained (×0.9–×1.5).
@@ -115,8 +126,23 @@ function emptyBoard(): CellValue[][] {
   return Array.from({ length: ROWS }, () => Array<CellValue>(COLS).fill(0));
 }
 
-function randomPiece(): Piece {
-  const key = KEYS[Math.floor(Math.random() * KEYS.length)];
+// 7-bag randomizer: every run of 7 pieces contains each tetromino exactly once,
+// so droughts (e.g. no I-piece for 30 spawns) cannot happen.
+let bag: TetrominoKey[] = [];
+
+function resetBag() {
+  bag = [];
+}
+
+function nextFromBag(): Piece {
+  if (bag.length === 0) {
+    bag = [...KEYS];
+    for (let i = bag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [bag[i], bag[j]] = [bag[j], bag[i]];
+    }
+  }
+  const key = bag.pop()!;
   return { key, rotation: 0, x: 3, y: -1 };
 }
 
@@ -160,8 +186,8 @@ type TetrisProps = {
 
 export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [board, setBoard] = useState<CellValue[][]>(emptyBoard);
-  const [piece, setPiece] = useState<Piece>(() => randomPiece());
-  const [nextPiece, setNextPiece] = useState<Piece>(() => randomPiece());
+  const [piece, setPiece] = useState<Piece>(() => nextFromBag());
+  const [nextPiece, setNextPiece] = useState<Piece>(() => nextFromBag());
   const [score, setScore] = useState(0);
   const [lines, setLines] = useState(0);
   const [round, setRound] = useState(1);
@@ -174,6 +200,8 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
   const [usedMultIdx, setUsedMultIdx] = useState<number[]>([]);
   const [activeMultValue, setActiveMultValue] = useState<number>(1);
+  // Rows currently flashing white before they collapse (line-clear animation).
+  const [flashRows, setFlashRows] = useState<number[]>([]);
 
   const speed = round;
 
@@ -185,6 +213,11 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const multiplierActiveRef = useRef(multiplierActive);
   const multiplierValueRef = useRef(1);
   const savedRef = useRef(false);
+  // true while the line-clear flash is playing — input and gravity are frozen
+  const clearingRef = useRef(false);
+  // lock delay: when the piece is grounded, it locks only after the deadline passes
+  const lockDelayRef = useRef<{ deadline: number; resets: number } | null>(null);
+  const flashTimeoutRef = useRef<number | null>(null);
 
   boardRef.current = board;
   pieceRef.current = piece;
@@ -194,11 +227,23 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   multiplierActiveRef.current = multiplierActive;
   multiplierValueRef.current = activeMultValue;
 
+  const clearTransients = useCallback(() => {
+    clearingRef.current = false;
+    lockDelayRef.current = null;
+    if (flashTimeoutRef.current !== null) {
+      window.clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = null;
+    }
+    setFlashRows([]);
+  }, []);
+
   const reset = useCallback(() => {
     savedRef.current = false;
+    resetBag();
+    clearTransients();
     setBoard(emptyBoard());
-    setPiece(randomPiece());
-    setNextPiece(randomPiece());
+    setPiece(nextFromBag());
+    setNextPiece(nextFromBag());
     setScore(0);
     setLines(0);
     setRound(1);
@@ -210,13 +255,15 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     setMultiplierTimeLeft(0);
     setUsedMultIdx([]);
     setActiveMultValue(1);
-  }, []);
+  }, [clearTransients]);
 
   const resetBoardOnly = useCallback(() => {
+    resetBag();
+    clearTransients();
     setBoard(emptyBoard());
-    setPiece(randomPiece());
-    setNextPiece(randomPiece());
-  }, []);
+    setPiece(nextFromBag());
+    setNextPiece(nextFromBag());
+  }, [clearTransients]);
 
   const nextRound = useCallback(() => {
     setRound((r) => {
@@ -248,6 +295,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
       setActiveMultValue(pool[idx]);
       setMultiplierActive(true);
       setMultiplierTimeLeft(MULTIPLIER_SECONDS);
+      vibrate([20, 30, 20]);
     },
     [multiplierActive, matchOver, round, usedMultIdx],
   );
@@ -261,15 +309,17 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   }, [multiplierActive, round, usedMultIdx, activateMultiplierAt]);
 
   const spawnNext = useCallback(() => {
+    lockDelayRef.current = null;
     setPiece((prevNext) => {
       // use nextPiece as the new active
       const incoming = { ...nextPieceRef.current, x: 3, y: -1, rotation: 0 };
       if (collides(boardRef.current, incoming)) {
         setRoundOver((prev) => prev ?? "topout");
         setMatchOver(true);
+        vibrate(80);
         return prevNext;
       }
-      setNextPiece(randomPiece());
+      setNextPiece(nextFromBag());
       return incoming;
     });
   }, []);
@@ -279,40 +329,84 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   nextPieceRef.current = nextPiece;
 
   const lockPiece = useCallback(() => {
+    if (clearingRef.current) return;
+    lockDelayRef.current = null;
     const merged = merge(boardRef.current, pieceRef.current);
-    const { board: cleared, cleared: n } = clearLines(merged);
-    setBoard(cleared);
-    if (n > 0) {
-      setLines((l) => l + n);
-      // scoring: speed × 10 per line, × active multiplier
-      const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
-      setScore((s) => s + n * speedRef.current * 10 * mult);
+    const fullRows: number[] = [];
+    merged.forEach((row, y) => {
+      if (row.every((c) => c !== 0)) fullRows.push(y);
+    });
+
+    if (fullRows.length === 0) {
+      vibrate(8);
+      setBoard(merged);
+      spawnNext();
+      return;
     }
-    spawnNext();
+
+    const n = fullRows.length;
+    vibrate(n === 4 ? [30, 40, 30] : 25);
+    setLines((l) => l + n);
+    // scoring: speed × 10 per line, × active multiplier
+    const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
+    setScore((s) => s + n * speedRef.current * 10 * mult);
+
+    // show the full rows flashing white briefly, then collapse them
+    clearingRef.current = true;
+    setBoard(merged);
+    setFlashRows(fullRows);
+    flashTimeoutRef.current = window.setTimeout(() => {
+      flashTimeoutRef.current = null;
+      clearingRef.current = false;
+      setFlashRows([]);
+      setBoard(clearLines(merged).board);
+      if (roundOverRef.current === null) spawnNext();
+    }, FLASH_MS);
   }, [spawnNext]);
 
-  const tryMove = useCallback((dx: number, dy: number): boolean => {
-    const moved = { ...pieceRef.current, x: pieceRef.current.x + dx, y: pieceRef.current.y + dy };
-    if (!collides(boardRef.current, moved)) {
-      setPiece(moved);
-      return true;
+  // Moving/rotating while grounded extends the lock window (up to MAX_LOCK_RESETS).
+  const extendLockDelay = useCallback(() => {
+    const ld = lockDelayRef.current;
+    if (ld && ld.resets < MAX_LOCK_RESETS) {
+      lockDelayRef.current = {
+        deadline: performance.now() + LOCK_DELAY_MS,
+        resets: ld.resets + 1,
+      };
     }
-    return false;
   }, []);
 
+  const tryMove = useCallback(
+    (dx: number, dy: number): boolean => {
+      if (clearingRef.current) return false;
+      const moved = { ...pieceRef.current, x: pieceRef.current.x + dx, y: pieceRef.current.y + dy };
+      if (!collides(boardRef.current, moved)) {
+        pieceRef.current = moved;
+        setPiece(moved);
+        extendLockDelay();
+        return true;
+      }
+      return false;
+    },
+    [extendLockDelay],
+  );
+
   const rotate = useCallback(() => {
+    if (clearingRef.current) return;
     const rotated = { ...pieceRef.current, rotation: (pieceRef.current.rotation + 1) % 4 };
     // simple wall nudge
     for (const dx of [0, -1, 1, -2, 2]) {
       const test = { ...rotated, x: rotated.x + dx };
       if (!collides(boardRef.current, test)) {
+        pieceRef.current = test;
         setPiece(test);
+        extendLockDelay();
         return;
       }
     }
-  }, []);
+  }, [extendLockDelay]);
 
   const hardDrop = useCallback(() => {
+    if (clearingRef.current) return;
     let p = pieceRef.current;
     while (!collides(boardRef.current, { ...p, y: p.y + 1 })) {
       p = { ...p, y: p.y + 1 };
@@ -327,7 +421,8 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     tryMove(0, 1);
   }, [tryMove]);
 
-  // gravity loop
+  // gravity loop (with lock delay: a grounded piece gets a short grace window
+  // before locking, checked every frame — not only on gravity steps)
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
@@ -335,15 +430,28 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     const tick = (now: number) => {
       const dt = now - last;
       last = now;
-      if (!pausedRef.current) {
-        acc += dt;
-        const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
-        const effectiveSpeed = speedRef.current * mult;
-        const interval = gravityMs(effectiveSpeed);
-        while (acc >= interval) {
-          acc -= interval;
-          if (!tryMove(0, 1)) {
+      if (!pausedRef.current && !clearingRef.current) {
+        const grounded = collides(boardRef.current, {
+          ...pieceRef.current,
+          y: pieceRef.current.y + 1,
+        });
+        if (grounded) {
+          acc = 0;
+          const ld = lockDelayRef.current;
+          if (ld === null) {
+            lockDelayRef.current = { deadline: now + LOCK_DELAY_MS, resets: 0 };
+          } else if (now >= ld.deadline) {
             lockPiece();
+          }
+        } else {
+          lockDelayRef.current = null;
+          acc += dt;
+          const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
+          const effectiveSpeed = speedRef.current * mult;
+          const interval = gravityMs(effectiveSpeed);
+          while (acc >= interval) {
+            acc -= interval;
+            if (!tryMove(0, 1)) break; // just landed — lock delay takes over next frame
           }
         }
       } else {
@@ -354,6 +462,14 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [tryMove, lockPiece]);
+
+  // clean up a pending flash timeout on unmount
+  useEffect(
+    () => () => {
+      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
+    },
+    [],
+  );
 
   // round timer
   useEffect(() => {
@@ -475,10 +591,25 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     }
   };
 
-  // Build display board with active piece overlay
+  // Build display board with active piece + ghost overlay.
+  // While the line-clear flash plays, the piece is already merged into the
+  // board, so we skip both overlays.
+  const clearing = flashRows.length > 0;
   const display = board.map((r) => r.slice());
-  for (const [x, y] of getCells(piece)) {
-    if (y >= 0 && y < ROWS && x >= 0 && x < COLS) display[y][x] = piece.key;
+  const ghostCells = new Set<number>();
+  if (!clearing) {
+    // ghost piece: where the active piece would land on a hard drop
+    let ghost = piece;
+    while (!collides(board, { ...ghost, y: ghost.y + 1 })) ghost = { ...ghost, y: ghost.y + 1 };
+    for (const [x, y] of getCells(ghost)) {
+      if (y >= 0 && y < ROWS && x >= 0 && x < COLS) ghostCells.add(y * COLS + x);
+    }
+    for (const [x, y] of getCells(piece)) {
+      if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
+        display[y][x] = piece.key;
+        ghostCells.delete(y * COLS + x);
+      }
+    }
   }
 
   const pool = poolForRound(round);
@@ -541,19 +672,30 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
               background: "var(--grid-line)",
             }}
           >
-            {display.flat().map((cell, i) => (
-              <div
-                key={i}
-                className="rounded-[2px]"
-                style={{
-                  background: cell === 0 ? "var(--card)" : COLORS[cell],
-                  boxShadow:
-                    cell === 0
-                      ? "inset 0 0 0 1px var(--grid-line)"
-                      : "inset 0 0 0 1px rgba(255,255,255,0.15)",
-                }}
-              />
-            ))}
+            {display.flat().map((cell, i) => {
+              const isFlash = clearing && flashRows.includes(Math.floor(i / COLS));
+              const isGhost = cell === 0 && ghostCells.has(i);
+              return (
+                <div
+                  key={i}
+                  className="rounded-[2px]"
+                  style={{
+                    background: isFlash
+                      ? "rgba(255,255,255,0.92)"
+                      : cell === 0
+                        ? "var(--card)"
+                        : COLORS[cell],
+                    boxShadow: isFlash
+                      ? "0 0 10px rgba(255,255,255,0.7)"
+                      : isGhost
+                        ? `inset 0 0 0 1.5px color-mix(in srgb, ${COLORS[piece.key]} 55%, transparent)`
+                        : cell === 0
+                          ? "inset 0 0 0 1px var(--grid-line)"
+                          : "inset 0 0 0 1px rgba(255,255,255,0.15)",
+                  }}
+                />
+              );
+            })}
           </div>
 
           {/* Active multiplier badge */}
@@ -634,13 +776,14 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
         </div>
       </div>
 
-      {/* Bottom controls: left · rotate · soft drop · hard drop · right */}
+      {/* Bottom controls: left · rotate · soft drop · hard drop · right.
+          Hold ◀ ▼ ▶ to auto-repeat (DAS). */}
       <div className="flex items-stretch gap-2 px-1">
-        <TouchBtn onClick={() => tryMove(-1, 0)}>◀</TouchBtn>
-        <TouchBtn onClick={rotate}>⟳</TouchBtn>
-        <TouchBtn onClick={softDrop}>▼</TouchBtn>
-        <TouchBtn onClick={hardDrop}>⤓</TouchBtn>
-        <TouchBtn onClick={() => tryMove(1, 0)}>▶</TouchBtn>
+        <TouchBtn repeat onPress={() => tryMove(-1, 0)}>◀</TouchBtn>
+        <TouchBtn onPress={rotate}>⟳</TouchBtn>
+        <TouchBtn repeat onPress={softDrop}>▼</TouchBtn>
+        <TouchBtn onPress={hardDrop}>⤓</TouchBtn>
+        <TouchBtn repeat onPress={() => tryMove(1, 0)}>▶</TouchBtn>
       </div>
 
       <ScoreSubmitDialog
@@ -711,11 +854,50 @@ function MultColumn({
   );
 }
 
-function TouchBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function TouchBtn({
+  children,
+  onPress,
+  repeat = false,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  repeat?: boolean;
+}) {
+  const delayRef = useRef<number | null>(null);
+  const repeatRef = useRef<number | null>(null);
+
+  const stop = useCallback(() => {
+    if (delayRef.current !== null) {
+      window.clearTimeout(delayRef.current);
+      delayRef.current = null;
+    }
+    if (repeatRef.current !== null) {
+      window.clearInterval(repeatRef.current);
+      repeatRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => stop, [stop]);
+
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault();
+    onPress();
+    if (!repeat) return;
+    stop();
+    delayRef.current = window.setTimeout(() => {
+      delayRef.current = null;
+      repeatRef.current = window.setInterval(onPress, ARR_MS);
+    }, DAS_MS);
+  };
+
   return (
     <button
-      onClick={onClick}
-      className="flex h-14 flex-1 items-center justify-center rounded-lg bg-secondary text-2xl font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground"
+      onPointerDown={start}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onContextMenu={(e) => e.preventDefault()}
+      className="flex h-14 flex-1 touch-none select-none items-center justify-center rounded-lg bg-secondary text-2xl font-bold text-secondary-foreground active:bg-accent active:text-accent-foreground"
     >
       {children}
     </button>
