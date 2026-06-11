@@ -99,7 +99,7 @@ function Menu({
         </a>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
           <a
-            href="https://akappstudio.pl/Tetspeed/Terms%20of%20Service/"
+            href="https://akappstudio.pl/Tetspeed/TermsofService/"
             target="_blank"
             rel="noopener noreferrer"
             className="transition-colors hover:text-foreground"
@@ -108,7 +108,7 @@ function Menu({
           </a>
           <span aria-hidden="true">·</span>
           <a
-            href="https://akappstudio.pl/Tetspeed/Privacy%20Policy/"
+            href="https://akappstudio.pl/Tetspeed/PrivacyPolicy/"
             target="_blank"
             rel="noopener noreferrer"
             className="transition-colors hover:text-foreground"
