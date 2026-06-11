@@ -65,3 +65,13 @@ export async function fetchTop100(): Promise<GlobalScore[]> {
     return { id: d.id, ...x };
   });
 }
+
+// Minimum score needed to enter the top 100. Returns null when the board has
+// fewer than 100 entries — then any score > 0 qualifies.
+export async function fetchTop100Cutoff(): Promise<number | null> {
+  const q = query(collection(getDb(), SCORES), orderBy("score", "desc"), limit(100));
+  const snap = await getDocs(q);
+  if (snap.size < 100) return null;
+  const last = snap.docs[snap.size - 1].data() as { score?: number };
+  return typeof last.score === "number" ? last.score : null;
+}
