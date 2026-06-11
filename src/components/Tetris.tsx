@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LocalScore } from "@/lib/localScores";
+import { loadLocalScores } from "@/lib/localScores";
 import { ScoreSubmitDialog } from "@/components/ScoreSubmitDialog";
 import { fetchTop100Cutoff } from "@/lib/globalScores";
+import { sfx, unlockAudio, isMuted, setMuted } from "@/lib/sounds";
 
 const COLS = 10;
 const ROWS = 20;
@@ -199,6 +201,12 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [submitOpen, setSubmitOpen] = useState(false);
   // null = still checking against the global top 100; true/false = verdict
   const [qualified, setQualified] = useState<boolean | null>(null);
+  // 3-2-1-GO before each round; null = round running
+  const [countdown, setCountdown] = useState<number | null>(3);
+  const [muted, setMutedState] = useState(true); // true until synced from localStorage
+  const [shake, setShake] = useState(false);
+  const [popup, setPopup] = useState<{ id: number; text: string } | null>(null);
+  const [isPersonalBest, setIsPersonalBest] = useState(false);
   const [multiplierActive, setMultiplierActive] = useState(false);
   const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
   const [usedMultIdx, setUsedMultIdx] = useState<number[]>([]);
@@ -221,11 +229,15 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   // lock delay: when the piece is grounded, it locks only after the deadline passes
   const lockDelayRef = useRef<{ deadline: number; resets: number } | null>(null);
   const flashTimeoutRef = useRef<number | null>(null);
+  const countdownRef = useRef<number | null>(countdown);
+  // hard drop plays its own thud — skip the regular lock click that follows
+  const skipLockSoundRef = useRef(false);
 
   boardRef.current = board;
   pieceRef.current = piece;
   speedRef.current = speed;
-  pausedRef.current = paused || roundOver !== null || matchOver;
+  pausedRef.current = paused || roundOver !== null || matchOver || countdown !== null;
+  countdownRef.current = countdown;
   roundOverRef.current = roundOver;
   multiplierActiveRef.current = multiplierActive;
   multiplierValueRef.current = activeMultValue;
@@ -256,6 +268,10 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     setPaused(false);
     setQualified(null);
     setSubmitOpen(false);
+    setCountdown(3);
+    setShake(false);
+    setPopup(null);
+    setIsPersonalBest(false);
     setMultiplierActive(false);
     setMultiplierTimeLeft(0);
     setUsedMultIdx([]);
@@ -281,6 +297,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
       setTimeLeft(ROUND_SECONDS);
       setRoundOver(null);
       resetBoardOnly();
+      setCountdown(3);
       setMultiplierActive(false);
       setMultiplierTimeLeft(0);
       setUsedMultIdx([]);
@@ -301,6 +318,9 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
       setMultiplierActive(true);
       setMultiplierTimeLeft(MULTIPLIER_SECONDS);
       vibrate([20, 30, 20]);
+      sfx.power();
+      setShake(true);
+      window.setTimeout(() => setShake(false), 320);
     },
     [multiplierActive, matchOver, round, usedMultIdx],
   );
@@ -344,17 +364,27 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
 
     if (fullRows.length === 0) {
       vibrate(8);
+      if (!skipLockSoundRef.current) sfx.lock();
+      skipLockSoundRef.current = false;
       setBoard(merged);
       spawnNext();
       return;
     }
 
     const n = fullRows.length;
+    skipLockSoundRef.current = false;
     vibrate(n === 4 ? [30, 40, 30] : 25);
     setLines((l) => l + n);
     // scoring: speed × 10 per line, × active multiplier
     const mult = multiplierActiveRef.current ? multiplierValueRef.current : 1;
-    setScore((s) => s + n * speedRef.current * 10 * mult);
+    const points = n * speedRef.current * 10 * mult;
+    setScore((s) => s + points);
+    sfx.clear(n, speedRef.current * mult);
+    setPopup({ id: Date.now(), text: `+${Math.round(points)}` });
+    if (n === 4) {
+      setShake(true);
+      window.setTimeout(() => setShake(false), 320);
+    }
 
     // show the full rows flashing white briefly, then collapse them
     clearingRef.current = true;
@@ -382,12 +412,13 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
 
   const tryMove = useCallback(
     (dx: number, dy: number): boolean => {
-      if (clearingRef.current) return false;
+      if (clearingRef.current || countdownRef.current !== null) return false;
       const moved = { ...pieceRef.current, x: pieceRef.current.x + dx, y: pieceRef.current.y + dy };
       if (!collides(boardRef.current, moved)) {
         pieceRef.current = moved;
         setPiece(moved);
         extendLockDelay();
+        if (dx !== 0) sfx.move();
         return true;
       }
       return false;
@@ -396,7 +427,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   );
 
   const rotate = useCallback(() => {
-    if (clearingRef.current) return;
+    if (clearingRef.current || countdownRef.current !== null) return;
     const rotated = { ...pieceRef.current, rotation: (pieceRef.current.rotation + 1) % 4 };
     // simple wall nudge
     for (const dx of [0, -1, 1, -2, 2]) {
@@ -405,19 +436,22 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
         pieceRef.current = test;
         setPiece(test);
         extendLockDelay();
+        sfx.rotate();
         return;
       }
     }
   }, [extendLockDelay]);
 
   const hardDrop = useCallback(() => {
-    if (clearingRef.current) return;
+    if (clearingRef.current || countdownRef.current !== null) return;
     let p = pieceRef.current;
     while (!collides(boardRef.current, { ...p, y: p.y + 1 })) {
       p = { ...p, y: p.y + 1 };
     }
     setPiece(p);
     pieceRef.current = p;
+    sfx.hardDrop();
+    skipLockSoundRef.current = true;
     lockPiece();
   }, [lockPiece]);
 
@@ -503,19 +537,75 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
           setActiveMultValue(1);
           return 0;
         }
+        if (t - 1 <= 3) sfx.multTick();
         return t - 1;
       });
     }, 1000);
     return () => clearInterval(id);
   }, [multiplierActive]);
 
-  // save final score to the local ranking, once per finished match
+  // save final score to the local ranking, once per finished match;
+  // compare against the previous best BEFORE saving to detect a new record
   useEffect(() => {
     if (matchOver && !savedRef.current) {
       savedRef.current = true;
+      const prevBest = loadLocalScores()[0]?.score ?? 0;
+      setIsPersonalBest(score > 0 && score > prevBest);
       onSaveScore({ score, lines, rounds: round, date: Date.now() });
     }
   }, [matchOver, score, lines, round, onSaveScore]);
+
+  // 3-2-1-GO countdown before each round
+  useEffect(() => {
+    if (countdown === null) return;
+    sfx.countdown(countdown);
+    const id = window.setTimeout(
+      () => setCountdown(countdown === 0 ? null : countdown - 1),
+      countdown === 0 ? 500 : 800,
+    );
+    return () => window.clearTimeout(id);
+  }, [countdown]);
+
+  // unlock audio on the first user gesture (mobile autoplay policy)
+  // and sync the mute toggle from localStorage
+  useEffect(() => {
+    setMutedState(isMuted());
+    const unlock = () => {
+      unlockAudio();
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  // auto-pause when the app/tab goes to the background
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden" && roundOverRef.current === null) {
+        setPaused(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // round-over / game-over jingles
+  useEffect(() => {
+    if (roundOver === "time") sfx.roundEnd();
+    else if (roundOver === "topout") sfx.gameOver();
+  }, [roundOver]);
+
+  // auto-remove the floating score popup after its animation
+  useEffect(() => {
+    if (!popup) return;
+    const id = window.setTimeout(() => setPopup(null), 900);
+    return () => window.clearTimeout(id);
+  }, [popup]);
 
   // When the match ends, check the score against the global top 100.
   // If it qualifies, open the (prefilled) submit dialog automatically.
@@ -531,7 +621,10 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
         if (cancelled) return;
         const ok = cutoff === null || score > cutoff;
         setQualified(ok);
-        if (ok) setSubmitOpen(true);
+        if (ok) {
+          sfx.fanfare();
+          setSubmitOpen(true);
+        }
       })
       .catch(() => {
         // Network/Firestore hiccup: don't block the player — let them submit manually.
@@ -672,6 +765,18 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
         />
         <Stat label="Time" value={formatTime(timeLeft)} />
         <button
+          onClick={() => {
+            const m = !muted;
+            setMuted(m);
+            setMutedState(m);
+            if (!m) unlockAudio();
+          }}
+          aria-label={muted ? "Unmute" : "Mute"}
+          className="ml-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary text-base text-secondary-foreground active:bg-accent active:text-accent-foreground"
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+        <button
           onClick={() => setPaused((v) => !v)}
           aria-label="Pause"
           className="ml-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary text-base text-secondary-foreground active:bg-accent active:text-accent-foreground"
@@ -701,7 +806,7 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
             header={<NextPreview piece={nextPiece} />}
           />
 
-          <div className="relative flex items-center justify-center">
+          <div className={`relative flex items-center justify-center ${shake ? "board-shake" : ""}`}>
           <div
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
@@ -747,6 +852,30 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
             </div>
           )}
 
+          {/* Floating score popup on line clears */}
+          {popup && (
+            <div
+              key={popup.id}
+              className="popup-rise pointer-events-none absolute left-1/2 top-1/3 z-10 font-mono text-2xl font-black text-primary"
+              style={{ textShadow: "0 0 12px color-mix(in srgb, var(--primary) 70%, transparent)" }}
+            >
+              {popup.text}
+            </div>
+          )}
+
+          {/* 3-2-1-GO round countdown */}
+          {countdown !== null && !overlayUp && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+              <div
+                key={countdown}
+                className="countdown-pop font-mono text-7xl font-black text-primary"
+                style={{ textShadow: "0 0 24px color-mix(in srgb, var(--primary) 70%, transparent)" }}
+              >
+                {countdown === 0 ? "GO!" : countdown}
+              </div>
+            </div>
+          )}
+
           {/* Overlay: pause / round / match */}
           {overlayUp && (
             <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/85 backdrop-blur-sm">
@@ -762,6 +891,11 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
                 </div>
                 {matchOver && (
                   <>
+                    {isPersonalBest && (
+                      <div className="mb-2 inline-block rounded-full bg-primary/15 px-3 py-1 text-sm font-bold text-primary">
+                        🏅 New personal best!
+                      </div>
+                    )}
                     <div className="mb-1 text-base text-foreground">
                       Score: <span className="font-mono font-bold">{score}</span>
                     </div>
