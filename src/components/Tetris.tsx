@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LocalScore } from "@/lib/localScores";
 import { ScoreSubmitDialog } from "@/components/ScoreSubmitDialog";
+import { fetchTop100Cutoff } from "@/lib/globalScores";
 
 const COLS = 10;
 const ROWS = 20;
@@ -196,6 +197,8 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
   const [matchOver, setMatchOver] = useState(false);
   const [paused, setPaused] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
+  // null = still checking against the global top 100; true/false = verdict
+  const [qualified, setQualified] = useState<boolean | null>(null);
   const [multiplierActive, setMultiplierActive] = useState(false);
   const [multiplierTimeLeft, setMultiplierTimeLeft] = useState(0);
   const [usedMultIdx, setUsedMultIdx] = useState<number[]>([]);
@@ -251,6 +254,8 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     setRoundOver(null);
     setMatchOver(false);
     setPaused(false);
+    setQualified(null);
+    setSubmitOpen(false);
     setMultiplierActive(false);
     setMultiplierTimeLeft(0);
     setUsedMultIdx([]);
@@ -512,9 +517,46 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
     }
   }, [matchOver, score, lines, round, onSaveScore]);
 
+  // When the match ends, check the score against the global top 100.
+  // If it qualifies, open the (prefilled) submit dialog automatically.
+  useEffect(() => {
+    if (!matchOver) return;
+    if (score <= 0) {
+      setQualified(false);
+      return;
+    }
+    let cancelled = false;
+    fetchTop100Cutoff()
+      .then((cutoff) => {
+        if (cancelled) return;
+        const ok = cutoff === null || score > cutoff;
+        setQualified(ok);
+        if (ok) setSubmitOpen(true);
+      })
+      .catch(() => {
+        // Network/Firestore hiccup: don't block the player — let them submit manually.
+        if (!cancelled) setQualified(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [matchOver, score]);
+
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't steal keys while the user is typing in a form field — otherwise
+      // Space (hard drop) eats spaces in the score-submit dialog on desktop.
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
       switch (e.key) {
         case "ArrowLeft":
           e.preventDefault();
@@ -734,13 +776,26 @@ export function Tetris({ onExit, onSaveScore }: TetrisProps) {
                   </div>
                 )}
                 <div className="flex flex-col items-center gap-2">
-                  {matchOver && (
-                    <button
-                      onClick={() => setSubmitOpen(true)}
-                      className="rounded-md border border-primary px-5 py-2 text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground"
-                    >
-                      Submit to Global Ranking ↗
-                    </button>
+                  {matchOver && qualified === null && (
+                    <p className="text-sm text-muted-foreground">Checking global Top 100…</p>
+                  )}
+                  {matchOver && qualified === true && (
+                    <>
+                      <p className="text-sm font-semibold text-primary">
+                        🏆 Your score makes the global Top 100!
+                      </p>
+                      <button
+                        onClick={() => setSubmitOpen(true)}
+                        className="rounded-md border border-primary px-5 py-2 text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground"
+                      >
+                        Submit to Global Ranking ↗
+                      </button>
+                    </>
+                  )}
+                  {matchOver && qualified === false && (
+                    <p className="text-sm text-muted-foreground">
+                      This score didn't reach the global Top 100 — keep stacking!
+                    </p>
                   )}
                   <button
                     onClick={() => {
