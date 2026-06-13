@@ -1,1 +1,14 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "pl.akappstudio.tetspeed",
+      "sha256_cert_fingerprints": [
+        "0F:73:DD:6A:FB:A5:1C:B4:A9:02:DB:F1:22:67:84:A9:68:7C:E9:86:3B:28:10:1B:A2:0B:47:39:83:58:EB:18",
+        "1D:A9:EA:3E:A5:57:63:82:FA:58:47:EF:B9:1A:3B:82:92:19:91:30:B6:7B:D8:45:C3:1A:F3:97:48:95:32:EC"
+      ]
+    }
+  }
+]
 
